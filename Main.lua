@@ -1,1029 +1,1233 @@
 --[[
-  LORD HUB — MURDER MYSTERY 2  (TAM SÜRÜM)
-  Tüm özellikler dahil | Mobil + PC | Tüm executor
---]]
+    MM2 HUB — MOBILE COMPATIBLE
+    Responsive UI | Touch Optimized | Fling System
+]]
 
-local Players  = game:GetService("Players")
-local RS       = game:GetService("RunService")
-local UIS      = game:GetService("UserInputService")
-local TS       = game:GetService("TweenService")
-local Lighting = game:GetService("Lighting")
-local Debris   = game:GetService("Debris")
-local lp       = Players.LocalPlayer
-local pgui     = lp.PlayerGui
-local cam      = workspace.CurrentCamera
+local Players   = game:GetService("Players")
+local RS        = game:GetService("RunService")
+local UIS       = game:GetService("UserInputService")
+local TS        = game:GetService("TweenService")
+local Lighting  = game:GetService("Lighting")
+local Debris    = game:GetService("Debris")
+local CS        = game:GetService("CollectionService")
 
-if pgui:FindFirstChild("MM2Hub") then pgui.MM2Hub:Destroy() end
+local lp   = Players.LocalPlayer
+local pgui = lp:WaitForChild("PlayerGui")
+local cam  = workspace.CurrentCamera
 
--- ── Yardımcılar ────────────────────────────────
-local function C()  return lp.Character end
-local function R()  local c=C(); return c and c:FindFirstChild("HumanoidRootPart") end
-local function H()  local c=C(); return c and c:FindFirstChildOfClass("Humanoid") end
+-- ═══ MOBİL TESPİT ═══
+local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
+local isTablet = UIS.TouchEnabled and UIS.KeyboardEnabled
 
--- ── Drawing API kontrolü ───────────────────────
+-- ═══ EKRAN BOYUTUNA GÖRE ÖLÇEK ═══
+local function getScale()
+    local vp = cam.ViewportSize
+    local baseW = 540
+    local baseH = 420
+    -- Küçük ekranda küçült, büyükte büyüt
+    local scaleX = math.min(vp.X / baseW * 0.9, 1)
+    local scaleY = math.min(vp.Y / baseH * 0.9, 1)
+    return math.min(scaleX, scaleY)
+end
+
+local function isSmallScreen()
+    return cam.ViewportSize.X < 600 or cam.ViewportSize.Y < 500
+end
+
+-- Boyutları responsive yap
+local scale = getScale()
+local TW = math.floor(540 * scale)
+local TH = math.floor(420 * scale)
+local SIDEBAR_W = isSmallScreen() and 90 or 130
+local HEADER_H = isMobile and 44 or 52
+local BTN_HEIGHT = isMobile and 42 or 36  -- mobilde daha büyük
+
+local OLD = pgui:FindFirstChild("MM2Tablet")
+if OLD then OLD:Destroy() end
+
+-- ═══ YARDIMCILAR ═══
+local function C() return lp.Character end
+local function R() local c=C(); return c and c:FindFirstChild("HumanoidRootPart") end
+local function H() local c=C(); return c and c:FindFirstChildOfClass("Humanoid") end
+
 local hasDrawing = pcall(function() return Drawing.new end)
 
--- ── Rol tespiti ────────────────────────────────
-local KNIFE_KW={"knife","bıçak","mm2knife","sickle","virtual knife"}
-local GUN_KW  ={"revolver","gun","sheriff","luger","mm2gun","pistol"}
-local function getRole(plr)
-    if plr==lp then return "self" end
-    local sources={plr.Character,plr:FindFirstChild("Backpack")}
-    for _,src in pairs(sources) do
+-- ═══ ROL TESPİTİ ═══
+local KNIFE_KW = {"knife","bıçak","sickle","virtual knife","mm2knife"}
+local GUN_KW   = {"revolver","gun","sheriff","luger","mm2gun","pistol"}
+local roleCache = {}
+
+local function scanRole(plr)
+    if plr == lp then return "self" end
+    for _, src in pairs({plr.Character, plr:FindFirstChild("Backpack")}) do
         if not src then continue end
-        for _,t in pairs(src:GetChildren()) do
+        for _, t in pairs(src:GetChildren()) do
             if t:IsA("Tool") then
-                local n=t.Name:lower()
-                for _,k in pairs(KNIFE_KW) do if n:find(k) then return "murderer" end end
-                for _,g in pairs(GUN_KW)   do if n:find(g) then return "sheriff"  end end
+                local n = t.Name:lower()
+                for _, k in pairs(KNIFE_KW) do if n:find(k) then return "murderer" end end
+                for _, g in pairs(GUN_KW)   do if n:find(g) then return "sheriff"  end end
             end
         end
     end
     return "innocent"
 end
-local RCOL={murderer=Color3.fromRGB(255,50,50),sheriff=Color3.fromRGB(50,130,255),innocent=Color3.fromRGB(80,220,80),unknown=Color3.fromRGB(160,160,160)}
-local RTXT={murderer="🔪 KATİL",sheriff="🔫 ŞERİF",innocent="🟢 MASUM",unknown="❔"}
+
+local function getRole(plr)
+    local c = roleCache[plr]
+    if c and tick() - c.t < 1 then return c.r end
+    local r = scanRole(plr)
+    roleCache[plr] = {r=r, t=tick()}
+    return r
+end
+
+local RCOL = {
+    murderer = Color3.fromRGB(255,70,70),
+    sheriff  = Color3.fromRGB(70,150,255),
+    innocent = Color3.fromRGB(90,220,90),
+    self     = Color3.fromRGB(200,200,200),
+    unknown  = Color3.fromRGB(160,160,160),
+}
+local RTXT = {
+    murderer = "🔪 KATİL",
+    sheriff  = "🔫 ŞERİF",
+    innocent = "🟢 MASUM",
+    self     = "👤 SEN",
+    unknown  = "❔",
+}
 
 -- ══════════════════════════════════════════════
--- GUI
+--  GUI — RESPONSIVE TABLET
 -- ══════════════════════════════════════════════
-local W,HH=320,440
-local sg=Instance.new("ScreenGui",pgui)
-sg.Name="MM2Hub";sg.ResetOnSpawn=false;sg.IgnoreGuiInset=true
+local sg = Instance.new("ScreenGui")
+sg.Name = "MM2Tablet"
+sg.ResetOnSpawn = false
+sg.IgnoreGuiInset = true
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+sg.DisplayOrder = 999
+sg.Parent = pgui
 
-local win=Instance.new("Frame",sg)
-win.Size=UDim2.fromOffset(W,HH);win.Position=UDim2.new(0.5,-W/2,0.5,-HH/2)
-win.BackgroundColor3=Color3.fromRGB(10,10,18);win.BorderSizePixel=0
-win.Active=true;win.Draggable=true
-Instance.new("UICorner",win).CornerRadius=UDim.new(0,10)
-do local s=Instance.new("UIStroke",win);s.Color=Color3.fromRGB(30,120,255);s.Thickness=1.5 end
+local overlay = Instance.new("Frame", sg)
+overlay.Size = UDim2.new(1, 0, 1, 0)
+overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+overlay.BackgroundTransparency = 1
+overlay.BorderSizePixel = 0
+overlay.Visible = false
 
--- Başlık
-local bar=Instance.new("Frame",win)
-bar.Size=UDim2.new(1,0,0,44);bar.BackgroundColor3=Color3.fromRGB(14,14,26);bar.BorderSizePixel=0
-Instance.new("UICorner",bar).CornerRadius=UDim.new(0,10)
-local bfix=Instance.new("Frame",bar);bfix.Size=UDim2.new(1,0,0.5,0);bfix.Position=UDim2.new(0,0,0.5,0)
-bfix.BackgroundColor3=Color3.fromRGB(14,14,26);bfix.BorderSizePixel=0
+local tablet = Instance.new("Frame", sg)
+tablet.Size = UDim2.fromOffset(TW, TH)
+tablet.Position = UDim2.new(0.5, -TW/2, 0.5, -TH/2)
+tablet.BackgroundColor3 = Color3.fromRGB(16, 16, 24)
+tablet.BorderSizePixel = 0
+tablet.ClipsDescendants = true
+tablet.Active = true
+Instance.new("UICorner", tablet).CornerRadius = UDim.new(0, isMobile and 12 or 16)
 
-local function mkL(p,txt,sz,col,xw,yw,ox,oy,xa,f)
-    local l=Instance.new("TextLabel",p);l.Text=txt;l.TextSize=sz or 12
-    l.TextColor3=col or Color3.new(1,1,1);l.Font=f or Enum.Font.GothamBold
-    l.Size=UDim2.new(xw or 0,ox or 0,yw or 0,oy or 0);l.BackgroundTransparency=1
-    l.TextXAlignment=xa or Enum.TextXAlignment.Left;return l
-end
-local ico=mkL(bar,"🔪",22,nil,0,44,0,1);ico.Position=UDim2.new(0,8,0,0);ico.TextXAlignment=Enum.TextXAlignment.Center
-local tn=mkL(bar,"MM2 HUB",14,nil,0,22,0.55,0);tn.Position=UDim2.new(0,36,0,4)
-local ts_=mkL(bar,"MURDER MYSTERY 2",8,Color3.fromRGB(30,120,255),0,14,0.55,0,nil,Enum.Font.GothamSemibold)
-ts_.Position=UDim2.new(0,36,0,26)
+local stroke = Instance.new("UIStroke", tablet)
+stroke.Color = Color3.fromRGB(45, 130, 255)
+stroke.Thickness = 1.5
+stroke.Transparency = 0.3
 
-local function hBtn(txt,col,ox)
-    local b=Instance.new("TextButton",bar)
-    b.Size=UDim2.fromOffset(24,24);b.Position=UDim2.new(1,ox,0.5,-12)
-    b.Text=txt;b.TextSize=11;b.Font=Enum.Font.GothamBold
-    b.TextColor3=Color3.new(1,1,1);b.BackgroundColor3=col;b.BorderSizePixel=0
-    Instance.new("UICorner",b).CornerRadius=UDim.new(0,5);return b
-end
-local closeB=hBtn("X",Color3.fromRGB(210,30,50),-7)
-local minB  =hBtn("_",Color3.fromRGB(40,40,65),-35)
-closeB.MouseButton1Click:Connect(function() win.Visible=false end)
-local mini=false
-minB.MouseButton1Click:Connect(function()
-    mini=not mini
-    TS:Create(win,TweenInfo.new(0.18),{Size=mini and UDim2.fromOffset(W,44) or UDim2.fromOffset(W,HH)}):Play()
-    minB.Text=mini and "+" or "_"
-end)
+-- ─── Başlık ───
+local header = Instance.new("Frame", tablet)
+header.Size = UDim2.new(1, 0, 0, HEADER_H)
+header.BackgroundColor3 = Color3.fromRGB(22, 22, 34)
+header.BorderSizePixel = 0
+Instance.new("UICorner", header).CornerRadius = UDim.new(0, isMobile and 12 or 16)
+local headerFix = Instance.new("Frame", header)
+headerFix.Size = UDim2.new(1, 0, 0.5, 0)
+headerFix.Position = UDim2.new(0, 0, 0.5, 0)
+headerFix.BackgroundColor3 = Color3.fromRGB(22, 22, 34)
+headerFix.BorderSizePixel = 0
 
--- Tab bar
-local tabBar=Instance.new("Frame",win)
-tabBar.Size=UDim2.new(1,0,0,30);tabBar.Position=UDim2.new(0,0,0,44)
-tabBar.BackgroundColor3=Color3.fromRGB(12,12,22);tabBar.BorderSizePixel=0
-do local l=Instance.new("UIListLayout",tabBar)
-   l.FillDirection=Enum.FillDirection.Horizontal
-   l.HorizontalAlignment=Enum.HorizontalAlignment.Center
-   l.VerticalAlignment=Enum.VerticalAlignment.Center;l.Padding=UDim.new(0,2) end
+local logo = Instance.new("TextLabel", header)
+local logoSize = isMobile and 32 or 38
+logo.Size = UDim2.fromOffset(logoSize, logoSize)
+logo.Position = UDim2.new(0, 8, 0.5, -logoSize/2)
+logo.BackgroundColor3 = Color3.fromRGB(45, 130, 255)
+logo.Text = "🔪"
+logo.TextSize = isMobile and 16 or 20
+logo.Font = Enum.Font.GothamBold
+logo.TextColor3 = Color3.new(1,1,1)
+logo.BorderSizePixel = 0
+Instance.new("UICorner", logo).CornerRadius = UDim.new(0, 8)
 
-local CONTENT_H=HH-74
-local content=Instance.new("Frame",win)
-content.Size=UDim2.new(1,0,0,CONTENT_H);content.Position=UDim2.new(0,0,0,74)
-content.BackgroundTransparency=1;content.BorderSizePixel=0
+local title = Instance.new("TextLabel", header)
+title.Size = UDim2.new(0, 180, 0, 18)
+title.Position = UDim2.new(0, logoSize + 12, 0, isMobile and 6 or 9)
+title.BackgroundTransparency = 1
+title.Text = "MM2 HUB"
+title.TextSize = isMobile and 13 or 15
+title.Font = Enum.Font.GothamBold
+title.TextColor3 = Color3.new(1,1,1)
+title.TextXAlignment = Enum.TextXAlignment.Left
 
-local TABS={"👁ESP","🎯Oyun","👥Oyuncu","⚡Karakter","🎨Görsel","⚙Ayar"}
-local tBtns={};local pages={};local activeTab=0
+local subtitle = Instance.new("TextLabel", header)
+subtitle.Size = UDim2.new(0, 180, 0, 12)
+subtitle.Position = UDim2.new(0, logoSize + 12, 0, isMobile and 24 or 28)
+subtitle.BackgroundTransparency = 1
+subtitle.Text = "MOBILE EDITION"
+subtitle.TextSize = 7
+subtitle.Font = Enum.Font.GothamSemibold
+subtitle.TextColor3 = Color3.fromRGB(120, 180, 255)
+subtitle.TextXAlignment = Enum.TextXAlignment.Left
 
-local function switchTab(i)
-    if activeTab==i then return end;activeTab=i
-    for j=1,#TABS do
-        TS:Create(tBtns[j],TweenInfo.new(0.13),{
-            BackgroundColor3=j==i and Color3.fromRGB(30,120,255) or Color3.fromRGB(18,18,30),
-            TextColor3      =j==i and Color3.new(1,1,1) or Color3.fromRGB(110,110,150)
-        }):Play()
-        pages[j].Visible=(j==i)
-    end
-end
-
-for i,name in ipairs(TABS) do
-    local tb=Instance.new("TextButton",tabBar)
-    tb.Size=UDim2.fromOffset(48,24);tb.Text=name;tb.TextSize=8
-    tb.Font=Enum.Font.GothamSemibold;tb.BorderSizePixel=0
-    tb.BackgroundColor3=Color3.fromRGB(18,18,30);tb.TextColor3=Color3.fromRGB(110,110,150)
-    Instance.new("UICorner",tb).CornerRadius=UDim.new(0,5);tBtns[i]=tb
-
-    local pg=Instance.new("ScrollingFrame",content)
-    pg.Size=UDim2.new(1,0,1,0);pg.BackgroundTransparency=1
-    pg.ScrollBarThickness=2;pg.ScrollBarImageColor3=Color3.fromRGB(30,120,255)
-    pg.CanvasSize=UDim2.new(0,0,0,0);pg.AutomaticCanvasSize=Enum.AutomaticSize.Y
-    pg.Visible=false;pg.BorderSizePixel=0
-    do local ul=Instance.new("UIListLayout",pg)
-       ul.Padding=UDim.new(0,4);ul.HorizontalAlignment=Enum.HorizontalAlignment.Center
-       local pd=Instance.new("UIPadding",pg)
-       pd.PaddingTop=UDim.new(0,6);pd.PaddingLeft=UDim.new(0,7);pd.PaddingRight=UDim.new(0,7) end
-    pages[i]=pg;local idx=i
-    tb.MouseButton1Click:Connect(function() switchTab(idx) end)
-end
-switchTab(1)
-
--- ── UI bileşenleri ─────────────────────────────
-local TW=TweenInfo.new(0.15,Enum.EasingStyle.Quad)
-
-local function Sec(pg,txt)
-    local f=Instance.new("Frame",pg);f.Size=UDim2.new(1,0,0,18);f.BackgroundTransparency=1
-    local l=Instance.new("TextLabel",f);l.Size=UDim2.new(1,0,1,0)
-    l.Text="  "..txt;l.TextSize=9;l.Font=Enum.Font.GothamBold
-    l.TextColor3=Color3.fromRGB(30,120,255);l.TextXAlignment=Enum.TextXAlignment.Left;l.BackgroundTransparency=1
-end
-
-local function Btn(pg,txt,col,cb)
-    local b=Instance.new("TextButton",pg)
-    b.Size=UDim2.new(1,0,0,34);b.Text=txt;b.TextSize=11
-    b.Font=Enum.Font.GothamSemibold;b.TextColor3=Color3.new(1,1,1)
-    b.BackgroundColor3=col or Color3.fromRGB(30,120,255);b.BorderSizePixel=0
-    Instance.new("UICorner",b).CornerRadius=UDim.new(0,7)
-    b.MouseButton1Click:Connect(cb)
-    b.MouseEnter:Connect(function() TS:Create(b,TW,{BackgroundTransparency=0.3}):Play() end)
-    b.MouseLeave:Connect(function() TS:Create(b,TW,{BackgroundTransparency=0}):Play() end)
+-- Başlık butonları — mobilde daha büyük
+local hBtnSize = isMobile and 36 or 28
+local function headerBtn(txt, ox, col)
+    local b = Instance.new("TextButton", header)
+    b.Size = UDim2.fromOffset(hBtnSize, hBtnSize)
+    b.Position = UDim2.new(1, ox, 0.5, -hBtnSize/2)
+    b.BackgroundColor3 = col
+    b.Text = txt
+    b.TextSize = isMobile and 16 or 13
+    b.Font = Enum.Font.GothamBold
+    b.TextColor3 = Color3.new(1,1,1)
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = false
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
     return b
 end
 
-local function Tog(pg,txt,cb)
-    local row=Instance.new("TextButton",pg)
-    row.Size=UDim2.new(1,0,0,36);row.Text=""
-    row.BackgroundColor3=Color3.fromRGB(17,17,28);row.BorderSizePixel=0
-    Instance.new("UICorner",row).CornerRadius=UDim.new(0,7)
-    local nl=Instance.new("TextLabel",row)
-    nl.Size=UDim2.new(0.72,0,1,0);nl.Position=UDim2.new(0,9,0,0)
-    nl.Text=txt;nl.TextSize=10;nl.Font=Enum.Font.GothamSemibold
-    nl.TextColor3=Color3.fromRGB(205,205,230);nl.TextXAlignment=Enum.TextXAlignment.Left;nl.BackgroundTransparency=1
-    local bg=Instance.new("Frame",row)
-    bg.Size=UDim2.fromOffset(38,19);bg.Position=UDim2.new(1,-46,0.5,-9.5)
-    bg.BackgroundColor3=Color3.fromRGB(48,48,65);bg.BorderSizePixel=0
-    Instance.new("UICorner",bg).CornerRadius=UDim.new(1,0)
-    local kn=Instance.new("Frame",bg)
-    kn.Size=UDim2.fromOffset(13,13);kn.Position=UDim2.new(0,3,0.5,-6.5)
-    kn.BackgroundColor3=Color3.fromRGB(155,155,180);kn.BorderSizePixel=0
-    Instance.new("UICorner",kn).CornerRadius=UDim.new(1,0)
-    local on=false
-    local tw2=TweenInfo.new(0.16)
+local closeBtn = headerBtn("✕", -(hBtnSize + 10), Color3.fromRGB(220, 50, 60))
+local minBtn   = headerBtn("—", -(hBtnSize * 2 + 14), Color3.fromRGB(50, 50, 70))
+
+-- ─── SÜRÜKLEME (MOBİL + PC) ───
+local dragging, dragStart, startPos
+
+local function startDrag(input)
+    dragging = true
+    dragStart = input.Position
+    startPos = tablet.Position
+end
+
+local function updateDrag(input)
+    if not dragging then return end
+    local d = input.Position - dragStart
+    tablet.Position = UDim2.new(
+        startPos.X.Scale, startPos.X.Offset + d.X,
+        startPos.Y.Scale, startPos.Y.Offset + d.Y
+    )
+end
+
+local function endDrag()
+    dragging = false
+end
+
+header.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1
+    or i.UserInputType == Enum.UserInputType.Touch then
+        startDrag(i)
+    end
+end)
+UIS.InputChanged:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseMovement
+    or i.UserInputType == Enum.UserInputType.Touch then
+        updateDrag(i)
+    end
+end)
+UIS.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1
+    or i.UserInputType == Enum.UserInputType.Touch then
+        endDrag()
+    end
+end)
+
+-- ─── SIDEBAR ───
+local sidebar = Instance.new("Frame", tablet)
+sidebar.Size = UDim2.new(0, SIDEBAR_W, 1, -HEADER_H)
+sidebar.Position = UDim2.new(0, 0, 0, HEADER_H)
+sidebar.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+sidebar.BorderSizePixel = 0
+
+local sidebarPad = Instance.new("UIPadding", sidebar)
+sidebarPad.PaddingTop = UDim.new(0, 6)
+sidebarPad.PaddingLeft = UDim.new(0, 5)
+sidebarPad.PaddingRight = UDim.new(0, 5)
+
+local sidebarList = Instance.new("UIListLayout", sidebar)
+sidebarList.Padding = UDim.new(0, 3)
+
+-- ─── CONTENT ───
+local contentFrame = Instance.new("Frame", tablet)
+contentFrame.Size = UDim2.new(1, -SIDEBAR_W, 1, -HEADER_H)
+contentFrame.Position = UDim2.new(0, SIDEBAR_W, 0, HEADER_H)
+contentFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 24)
+contentFrame.BorderSizePixel = 0
+contentFrame.ClipsDescendants = true
+
+-- ─── TABS ───
+local TABS = {
+    {icon="👁", name="ESP"},
+    {icon="🎯", name="Oyun"},
+    {icon="👥", name="Oyuncu"},
+    {icon="⚡", name="Karakter"},
+    {icon="🎨", name="Görsel"},
+    {icon="⚙", name="Ayar"},
+}
+
+local tabButtons, pages = {}, {}
+local activeTab = 0
+
+local function switchTab(idx)
+    if activeTab == idx then return end
+    for i, btn in ipairs(tabButtons) do
+        local isA = i == idx
+        TS:Create(btn, TweenInfo.new(0.15), {
+            BackgroundColor3 = isA and Color3.fromRGB(45,130,255) or Color3.fromRGB(20,20,30)
+        }):Play()
+        if btn:FindFirstChild("Label") then
+            TS:Create(btn.Label, TweenInfo.new(0.15), {
+                TextColor3 = isA and Color3.new(1,1,1) or Color3.fromRGB(140,140,170)
+            }):Play()
+        end
+        pages[i].Visible = isA
+    end
+    activeTab = idx
+end
+
+local tabHeight = isMobile and 46 or 42
+for i, tab in ipairs(TABS) do
+    local btn = Instance.new("TextButton", sidebar)
+    btn.Size = UDim2.new(1, 0, 0, tabHeight)
+    btn.BackgroundColor3 = Color3.fromRGB(20,20,30)
+    btn.Text = ""
+    btn.BorderSizePixel = 0
+    btn.AutoButtonColor = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+    local icon = Instance.new("TextLabel", btn)
+    icon.Size = UDim2.fromOffset(isMobile and 28 or 24, tabHeight)
+    icon.Position = UDim2.new(0, 4, 0, 0)
+    icon.BackgroundTransparency = 1
+    icon.Text = tab.icon
+    icon.TextSize = isMobile and 18 or 16
+    icon.Font = Enum.Font.GothamBold
+    icon.TextColor3 = Color3.new(1,1,1)
+
+    local label = Instance.new("TextLabel", btn)
+    label.Name = "Label"
+    label.Size = UDim2.new(1, -(isMobile and 36 or 34), 1, 0)
+    label.Position = UDim2.new(0, isMobile and 34 or 32, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = tab.name
+    label.TextSize = isMobile and 10 or 11
+    label.Font = Enum.Font.GothamSemibold
+    label.TextColor3 = Color3.fromRGB(140,140,170)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextTruncate = Enum.TextTruncate.AtEnd
+
+    btn.MouseButton1Click:Connect(function() switchTab(i) end)
+    tabButtons[i] = btn
+
+    local page = Instance.new("ScrollingFrame", contentFrame)
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel = 0
+    page.ScrollBarThickness = isMobile and 5 or 3
+    page.ScrollBarImageColor3 = Color3.fromRGB(45,130,255)
+    page.CanvasSize = UDim2.new(0, 0, 0, 0)
+    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    page.Visible = false
+    page.ClipsDescendants = true
+    -- MOBİL İÇİN önemli: touch scroll aktif
+    page.ScrollingEnabled = true
+    page.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+
+    local pad = Instance.new("UIPadding", page)
+    pad.PaddingTop = UDim.new(0, 6)
+    pad.PaddingLeft = UDim.new(0, isMobile and 6 or 10)
+    pad.PaddingRight = UDim.new(0, isMobile and 6 or 10)
+    pad.PaddingBottom = UDim.new(0, 10)
+
+    local layout = Instance.new("UIListLayout", page)
+    layout.Padding = UDim.new(0, isMobile and 6 or 5)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+
+    pages[i] = page
+end
+
+-- ══════════════════════════════════════════════
+--  UI BİLEŞENLERİ — MOBİL BOYUTLU
+-- ══════════════════════════════════════════════
+local TW_ANIM = TweenInfo.new(0.12, Enum.EasingStyle.Quad)
+
+local function Section(parent, txt)
+    local f = Instance.new("Frame", parent)
+    f.Size = UDim2.new(1, 0, 0, isMobile and 24 or 22)
+    f.BackgroundTransparency = 1
+    local l = Instance.new("TextLabel", f)
+    l.Size = UDim2.new(1, 0, 1, 0)
+    l.BackgroundTransparency = 1
+    l.Text = txt:upper()
+    l.TextSize = isMobile and 10 or 9
+    l.Font = Enum.Font.GothamBold
+    l.TextColor3 = Color3.fromRGB(100,160,255)
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    return f
+end
+
+local function Button(parent, txt, color, cb)
+    local b = Instance.new("TextButton", parent)
+    b.Size = UDim2.new(1, 0, 0, BTN_HEIGHT)
+    b.BackgroundColor3 = color or Color3.fromRGB(45,130,255)
+    b.Text = txt
+    b.TextSize = isMobile and 12 or 11
+    b.Font = Enum.Font.GothamSemibold
+    b.TextColor3 = Color3.new(1,1,1)
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = true  -- mobilde görsel feedback için önemli
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    b.MouseButton1Click:Connect(function()
+        if cb then pcall(cb) end
+    end)
+    return b
+end
+
+local function Toggle(parent, txt, cb)
+    local row = Instance.new("TextButton", parent)
+    row.Size = UDim2.new(1, 0, 0, isMobile and 46 or 40)
+    row.BackgroundColor3 = Color3.fromRGB(24,24,36)
+    row.Text = ""
+    row.BorderSizePixel = 0
+    row.AutoButtonColor = false
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(1, -70, 1, 0)
+    lbl.Position = UDim2.new(0, 12, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = txt
+    lbl.TextSize = isMobile and 12 or 11
+    lbl.Font = Enum.Font.GothamSemibold
+    lbl.TextColor3 = Color3.fromRGB(210,210,230)
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextWrapped = true
+    lbl.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local track = Instance.new("Frame", row)
+    track.Size = UDim2.fromOffset(isMobile and 48 or 42, isMobile and 26 or 22)
+    track.Position = UDim2.new(1, isMobile and -62 or -54, 0.5, isMobile and -13 or -11)
+    track.BackgroundColor3 = Color3.fromRGB(50,50,68)
+    track.BorderSizePixel = 0
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1,0)
+
+    local knob = Instance.new("Frame", track)
+    local knobSize = isMobile and 20 or 16
+    knob.Size = UDim2.fromOffset(knobSize, knobSize)
+    knob.Position = UDim2.new(0, 3, 0.5, -knobSize/2)
+    knob.BackgroundColor3 = Color3.fromRGB(160,160,180)
+    knob.BorderSizePixel = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1,0)
+
+    local on = false
     local function set(v)
-        on=v
-        if v then
-            TS:Create(bg,tw2,{BackgroundColor3=Color3.fromRGB(30,120,255)}):Play()
-            TS:Create(kn,tw2,{Position=UDim2.new(0,22,0.5,-6.5),BackgroundColor3=Color3.new(1,1,1)}):Play()
-        else
-            TS:Create(bg,tw2,{BackgroundColor3=Color3.fromRGB(48,48,65)}):Play()
-            TS:Create(kn,tw2,{Position=UDim2.new(0,3,0.5,-6.5),BackgroundColor3=Color3.fromRGB(155,155,180)}):Play()
-        end
-        cb(v)
+        on = v
+        TS:Create(track, TweenInfo.new(0.15), {
+            BackgroundColor3 = v and Color3.fromRGB(45,130,255) or Color3.fromRGB(50,50,68)
+        }):Play()
+        TS:Create(knob, TweenInfo.new(0.15), {
+            Position = v and UDim2.new(1, -(knobSize+3), 0.5, -knobSize/2) or UDim2.new(0, 3, 0.5, -knobSize/2),
+            BackgroundColor3 = v and Color3.new(1,1,1) or Color3.fromRGB(160,160,180)
+        }):Play()
+        if cb then pcall(cb, v) end
     end
+
     row.MouseButton1Click:Connect(function() set(not on) end)
-    return {set=set,get=function()return on end}
+    return {set=set, get=function() return on end, row=row}
 end
 
-local function Sli(pg,txt,mn,mx,def,cb)
-    local f=Instance.new("Frame",pg)
-    f.Size=UDim2.new(1,0,0,50);f.BackgroundColor3=Color3.fromRGB(17,17,28)
-    f.BorderSizePixel=0;Instance.new("UICorner",f).CornerRadius=UDim.new(0,7)
-    local nl=Instance.new("TextLabel",f);nl.Size=UDim2.new(0.62,0,0,20)
-    nl.Position=UDim2.new(0,9,0,4);nl.Text=txt;nl.TextSize=11
-    nl.Font=Enum.Font.GothamSemibold;nl.TextColor3=Color3.fromRGB(205,205,230)
-    nl.TextXAlignment=Enum.TextXAlignment.Left;nl.BackgroundTransparency=1
-    local vl=Instance.new("TextLabel",f);vl.Size=UDim2.new(0.34,0,0,20)
-    vl.Position=UDim2.new(0.62,-4,0,4);vl.Text=tostring(def);vl.TextSize=11
-    vl.Font=Enum.Font.GothamBold;vl.TextColor3=Color3.fromRGB(30,120,255)
-    vl.TextXAlignment=Enum.TextXAlignment.Right;vl.BackgroundTransparency=1
-    local tr=Instance.new("Frame",f);tr.Size=UDim2.new(1,-18,0,4)
-    tr.Position=UDim2.new(0,9,0,36);tr.BackgroundColor3=Color3.fromRGB(36,36,55)
-    tr.BorderSizePixel=0;Instance.new("UICorner",tr).CornerRadius=UDim.new(1,0)
-    local p0=(def-mn)/(mx-mn)
-    local fi=Instance.new("Frame",tr);fi.Size=UDim2.new(p0,0,1,0)
-    fi.BackgroundColor3=Color3.fromRGB(30,120,255);fi.BorderSizePixel=0
-    Instance.new("UICorner",fi).CornerRadius=UDim.new(1,0)
-    local kk=Instance.new("Frame",tr);kk.Size=UDim2.fromOffset(11,11)
-    kk.AnchorPoint=Vector2.new(0.5,0.5);kk.Position=UDim2.new(p0,0,0.5,0)
-    kk.BackgroundColor3=Color3.new(1,1,1);kk.BorderSizePixel=0
-    Instance.new("UICorner",kk).CornerRadius=UDim.new(1,0)
-    local dr=false
-    local function upd(x)
-        local p=math.clamp((x-tr.AbsolutePosition.X)/tr.AbsoluteSize.X,0,1)
-        local v=math.floor(mn+p*(mx-mn));vl.Text=tostring(v)
-        fi.Size=UDim2.new(p,0,1,0);kk.Position=UDim2.new(p,0,0.5,0);cb(v)
+-- SLIDER — MOBİL İÇİN DÜZELTİLDİ
+local function Slider(parent, txt, mn, mx, def, cb)
+    local f = Instance.new("Frame", parent)
+    f.Size = UDim2.new(1, 0, 0, isMobile and 62 or 52)
+    f.BackgroundColor3 = Color3.fromRGB(24,24,36)
+    f.BorderSizePixel = 0
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
+
+    local name = Instance.new("TextLabel", f)
+    name.Size = UDim2.new(0.65, 0, 0, 22)
+    name.Position = UDim2.new(0, 12, 0, 6)
+    name.BackgroundTransparency = 1
+    name.Text = txt
+    name.TextSize = isMobile and 12 or 11
+    name.Font = Enum.Font.GothamSemibold
+    name.TextColor3 = Color3.fromRGB(210,210,230)
+    name.TextXAlignment = Enum.TextXAlignment.Left
+
+    local val = Instance.new("TextLabel", f)
+    val.Size = UDim2.new(0.3, 0, 0, 22)
+    val.Position = UDim2.new(0.65, -10, 0, 6)
+    val.BackgroundTransparency = 1
+    val.Text = tostring(def)
+    val.TextSize = isMobile and 12 or 11
+    val.Font = Enum.Font.GothamBold
+    val.TextColor3 = Color3.fromRGB(45,130,255)
+    val.TextXAlignment = Enum.TextXAlignment.Right
+
+    -- Mobilde daha büyük hitbox
+    local trackH = isMobile and 28 or 22
+    local track = Instance.new("Frame", f)
+    track.Size = UDim2.new(1, -24, 0, trackH)
+    track.Position = UDim2.new(0, 12, 1, isMobile and -34 or -20)
+    track.BackgroundTransparency = 1
+
+    local barBg = Instance.new("Frame", track)
+    barBg.Size = UDim2.new(1, 0, 0, 5)
+    barBg.Position = UDim2.new(0, 0, 0.5, -2.5)
+    barBg.BackgroundColor3 = Color3.fromRGB(40,40,58)
+    barBg.BorderSizePixel = 0
+    Instance.new("UICorner", barBg).CornerRadius = UDim.new(1,0)
+
+    local p0 = (def - mn) / (mx - mn)
+    local fill = Instance.new("Frame", barBg)
+    fill.Size = UDim2.new(p0, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(45,130,255)
+    fill.BorderSizePixel = 0
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1,0)
+
+    local knobSize2 = isMobile and 18 or 13
+    local knob = Instance.new("Frame", barBg)
+    knob.Size = UDim2.fromOffset(knobSize2, knobSize2)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Position = UDim2.new(p0, 0, 0.5, 0)
+    knob.BackgroundColor3 = Color3.new(1,1,1)
+    knob.BorderSizePixel = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1,0)
+
+    local dragging2 = false
+    local function update(x)
+        local p = math.clamp((x - barBg.AbsolutePosition.X) / barBg.AbsoluteSize.X, 0, 1)
+        local v = math.floor(mn + p * (mx - mn))
+        val.Text = tostring(v)
+        fill.Size = UDim2.new(p, 0, 1, 0)
+        knob.Position = UDim2.new(p, 0, 0.5, 0)
+        if cb then pcall(cb, v) end
     end
-    tr.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=true;upd(i.Position.X) end end)
-    kk.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=true end end)
-    UIS.InputChanged:Connect(function(i) if dr and(i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then upd(i.Position.X) end end)
-    UIS.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dr=false end end)
-end
 
--- ══════════════════════════════════════════════
--- TAB 1 — ESP
--- ══════════════════════════════════════════════
-local P1=pages[1]
-local espObjs={};local espOn=false
-
-local function clearESP()
-    for _,o in pairs(espObjs) do pcall(function()o:Destroy()end) end;espObjs={}
-end
-local function buildESP()
-    clearESP()
-    for _,plr in pairs(Players:GetPlayers()) do
-        if plr==lp then continue end
-        local char=plr.Character;if not char then continue end
-        local head=char:FindFirstChild("Head");if not head then continue end
-        local role=getRole(plr);local col=RCOL[role]
-        local bill=Instance.new("BillboardGui",head)
-        bill.Name="MM2ESP";bill.AlwaysOnTop=true
-        bill.Size=UDim2.fromOffset(165,55);bill.StudsOffset=Vector3.new(0,3.8,0)
-        local bg=Instance.new("Frame",bill);bg.Size=UDim2.new(1,0,1,0)
-        bg.BackgroundColor3=Color3.fromRGB(8,8,14);bg.BackgroundTransparency=0.3;bg.BorderSizePixel=0
-        Instance.new("UICorner",bg).CornerRadius=UDim.new(0,6)
-        do local st=Instance.new("UIStroke",bg);st.Color=col;st.Thickness=1.2 end
-        local rl=Instance.new("TextLabel",bg);rl.Size=UDim2.new(1,0,0.42,0)
-        rl.Text=RTXT[role];rl.TextSize=11;rl.Font=Enum.Font.GothamBold
-        rl.TextColor3=col;rl.BackgroundTransparency=1
-        local nl=Instance.new("TextLabel",bg);nl.Size=UDim2.new(1,0,0.3,0)
-        nl.Position=UDim2.new(0,0,0.42,0);nl.Text=plr.Name;nl.TextSize=10
-        nl.Font=Enum.Font.Gotham;nl.TextColor3=Color3.new(1,1,1);nl.BackgroundTransparency=1
-        local hum=char:FindFirstChildOfClass("Humanoid")
-        local hl=Instance.new("TextLabel",bg);hl.Size=UDim2.new(1,0,0.28,0)
-        hl.Position=UDim2.new(0,0,0.72,0);hl.TextSize=9;hl.Font=Enum.Font.Gotham
-        hl.TextColor3=Color3.fromRGB(100,255,100);hl.BackgroundTransparency=1
-        if hum then
-            hl.Text="❤ "..math.floor(hum.Health).."/"..math.floor(hum.MaxHealth)
-            hum:GetPropertyChangedSignal("Health"):Connect(function()
-                if hl.Parent then hl.Text="❤ "..math.floor(hum.Health).."/"..math.floor(hum.MaxHealth) end
-            end)
+    -- MOBİL: Touch events'i ayrı dinle
+    track.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then
+            dragging2 = true
+            update(i.Position.X)
         end
-        -- Rol değişince yenile
-        char.ChildAdded:Connect(function(t) if t:IsA("Tool") and espOn then task.wait(0.1);buildESP() end end)
-        char.ChildRemoved:Connect(function(t) if t:IsA("Tool") and espOn then task.wait(0.1);buildESP() end end)
-        table.insert(espObjs,bill)
-    end
-end
+    end)
 
-Sec(P1,"ROL ESP")
-Tog(P1,"👁️ Rol ESP  (Katil🔴 Şerif🔵 Masum🟢)",function(on) espOn=on; if on then buildESP() else clearESP() end end)
-Btn(P1,"🔄 ESP Yenile",Color3.fromRGB(22,22,38),function() if espOn then buildESP() end end)
-
--- Tracer çizgileri
-local tracerLines={};local tracerOn=false;local tracerConn
-local function clearTracers() for _,l in pairs(tracerLines) do pcall(function()l.Visible=false;l:Remove()end) end;tracerLines={} end
-local function buildTracers()
-    clearTracers()
-    if not hasDrawing then return end
-    for _,plr in pairs(Players:GetPlayers()) do
-        if plr==lp then continue end
-        local role=getRole(plr)
-        if role~="murderer" and role~="sheriff" then continue end
-        local root=plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-        if not root then continue end
-        local sp,vis=cam:WorldToViewportPoint(root.Position)
-        if not vis then continue end
-        local line=Drawing.new("Line")
-        line.From=Vector2.new(cam.ViewportSize.X/2,cam.ViewportSize.Y-20)
-        line.To  =Vector2.new(sp.X,sp.Y)
-        line.Color=role=="murderer" and Color3.fromRGB(255,50,50) or Color3.fromRGB(50,130,255)
-        line.Thickness=1.8;line.Visible=true
-        table.insert(tracerLines,line)
-    end
-end
-
-Sec(P1,"TRACER & CROSSHAIR")
-Tog(P1,"📏 Tracer  (Katile/Şerife çizgi)",function(on)
-    tracerOn=on
-    if on and hasDrawing then
-        tracerConn=RS.Heartbeat:Connect(function() buildTracers() end)
-    else
-        clearTracers()
-        if tracerConn then tracerConn:Disconnect();tracerConn=nil end
-    end
-end)
-
--- Crosshair
-local chLines={};local chOn=false;local chConn
-local function buildCH()
-    for _,l in pairs(chLines) do pcall(function()l.Visible=false;l:Remove()end) end;chLines={}
-    if not hasDrawing then return end
-    local cx,cy=cam.ViewportSize.X/2,cam.ViewportSize.Y/2
-    local sz,gap,thick=14,5,1.8
-    local defs={
-        {Vector2.new(cx-sz,cy),Vector2.new(cx-gap,cy)},
-        {Vector2.new(cx+gap,cy),Vector2.new(cx+sz,cy)},
-        {Vector2.new(cx,cy-sz),Vector2.new(cx,cy-gap)},
-        {Vector2.new(cx,cy+gap),Vector2.new(cx,cy+sz)},
-    }
-    for _,d in pairs(defs) do
-        local l=Drawing.new("Line");l.From=d[1];l.To=d[2]
-        l.Color=Color3.new(1,1,1);l.Thickness=thick;l.Visible=true
-        table.insert(chLines,l)
-    end
-end
-Tog(P1,"➕ Crosshair  (Ekrana nişangah)",function(on)
-    chOn=on
-    if on and hasDrawing then
-        buildCH()
-        chConn=RS.Heartbeat:Connect(function() buildCH() end)
-    else
-        for _,l in pairs(chLines) do pcall(function()l.Visible=false;l:Remove()end) end;chLines={}
-        if chConn then chConn:Disconnect();chConn=nil end
-    end
-end)
-
--- Coin ESP
-local coinESP={};local coinESPOn=false;local coinConn2
-local function clearCoinESP() for _,o in pairs(coinESP) do pcall(function()o:Destroy()end) end;coinESP={} end
-local function buildCoinESP()
-    clearCoinESP()
-    for _,obj in pairs(workspace:GetDescendants()) do
-        local n=obj.Name:lower()
-        if obj:IsA("BasePart") and(n:find("coin") or n=="credit" or n=="gem") then
-            local bill=Instance.new("BillboardGui",obj)
-            bill.Name="CoinESP";bill.AlwaysOnTop=true
-            bill.Size=UDim2.fromOffset(55,20);bill.StudsOffset=Vector3.new(0,2.5,0)
-            local l=Instance.new("TextLabel",bill);l.Size=UDim2.new(1,0,1,0)
-            l.Text="💰";l.TextSize=14;l.Font=Enum.Font.GothamBold
-            l.TextColor3=Color3.fromRGB(255,215,0);l.BackgroundTransparency=1
-            table.insert(coinESP,bill)
+    UIS.InputChanged:Connect(function(i)
+        if dragging2 and (i.UserInputType == Enum.UserInputType.MouseMovement
+        or i.UserInputType == Enum.UserInputType.Touch) then
+            update(i.Position.X)
         end
-    end
-end
+    end)
 
-Sec(P1,"COIN & SİLAH ESP")
-Tog(P1,"💰 Coin ESP",function(on)
-    coinESPOn=on
-    if on then
-        buildCoinESP()
-        coinConn2=workspace.DescendantAdded:Connect(function() task.wait(0.1);if coinESPOn then buildCoinESP() end end)
-    else
-        clearCoinESP();if coinConn2 then coinConn2:Disconnect();coinConn2=nil end
-    end
-end)
-
--- Weapon ESP
-local wESP={};local function clearWESP() for _,o in pairs(wESP) do pcall(function()o:Destroy()end) end;wESP={} end
-local function buildWESP()
-    clearWESP()
-    for _,obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("Tool") then
-            local n=obj.Name:lower()
-            local isk=false;local isg=false
-            for _,k in pairs(KNIFE_KW) do if n:find(k) then isk=true;break end end
-            for _,g in pairs(GUN_KW)   do if n:find(g) then isg=true;break end end
-            if isk or isg then
-                local h2=obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-                if h2 then
-                    local bill=Instance.new("BillboardGui",h2)
-                    bill.Name="WEsp";bill.AlwaysOnTop=true
-                    bill.Size=UDim2.fromOffset(70,20);bill.StudsOffset=Vector3.new(0,2.5,0)
-                    local l=Instance.new("TextLabel",bill);l.Size=UDim2.new(1,0,1,0)
-                    l.Text=isk and "🔪 BIÇAK" or "🔫 SİLAH";l.TextSize=10
-                    l.Font=Enum.Font.GothamBold
-                    l.TextColor3=isk and Color3.fromRGB(255,80,80) or Color3.fromRGB(80,150,255)
-                    l.BackgroundTransparency=1;table.insert(wESP,bill)
-                end
-            end
+    UIS.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then
+            dragging2 = false
         end
-    end
+    end)
+
+    return f
 end
-Tog(P1,"🔪 Silah ESP  (Yerdeki bıçak/silah)",function(on) if on then buildWESP() else clearWESP() end end)
-Btn(P1,"🔄 Silah ESP Yenile",Color3.fromRGB(22,22,38),buildWESP)
-
--- Uyarı HUD
-local alertF=Instance.new("Frame",sg)
-alertF.Size=UDim2.new(0.5,0,0,38);alertF.Position=UDim2.new(0.25,0,0,56)
-alertF.BackgroundColor3=Color3.fromRGB(200,20,20);alertF.BackgroundTransparency=0.18
-alertF.BorderSizePixel=0;alertF.Visible=false
-Instance.new("UICorner",alertF).CornerRadius=UDim.new(0,8)
-local alertTxt=Instance.new("TextLabel",alertF);alertTxt.Size=UDim2.new(1,0,1,0)
-alertTxt.Text="⚠️  KATİL YAKLAŞIYOR!";alertTxt.TextSize=13
-alertTxt.Font=Enum.Font.GothamBold;alertTxt.TextColor3=Color3.new(1,1,1);alertTxt.BackgroundTransparency=1
-
-local alertC
-Sec(P1,"UYARI")
-Tog(P1,"⚠️ Katil Uyarısı  (15 studs)",function(on)
-    if on then
-        alertC=RS.Heartbeat:Connect(function()
-            local r=R();if not r then return end
-            local found=false
-            for _,plr in pairs(Players:GetPlayers()) do
-                if plr==lp then continue end
-                if getRole(plr)=="murderer" then
-                    local t=plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-                    if t and(t.Position-r.Position).Magnitude<15 then found=true;break end
-                end
-            end
-            alertF.Visible=found
-        end)
-    else
-        if alertC then alertC:Disconnect();alertC=nil end;alertF.Visible=false
-    end
-end)
 
 -- ══════════════════════════════════════════════
--- TAB 2 — OYUN İÇİ
+--  ESP SİSTEMİ
 -- ══════════════════════════════════════════════
-local P2=pages[2]
+local espData = {}
+local espOn = false
+local espUpdateConn
 
--- Auto Coin
-Sec(P2,"OTOMATİK")
-local autoCoinC;local autoCoinOn=false
-Tog(P2,"💰 Auto Coin Topla  (Otomatik ışın)",function(on)
-    autoCoinOn=on
-    if on then
-        autoCoinC=RS.Heartbeat:Connect(function()
-            local r=R();if not r then return end
-            local best,bestD=nil,math.huge
-            for _,obj in pairs(workspace:GetDescendants()) do
-                local n=obj.Name:lower()
-                if obj:IsA("BasePart") and(n:find("coin") or n=="credit") then
-                    local d=(obj.Position-r.Position).Magnitude
-                    if d<bestD then bestD=d;best=obj end
-                end
-            end
-            if best and bestD<80 then
-                r.CFrame=CFrame.new(best.Position+Vector3.new(0,3,0))
-            end
-        end)
-    else if autoCoinC then autoCoinC:Disconnect();autoCoinC=nil end end
-end)
+local function createESPFor(plr)
+    if plr == lp or espData[plr] then return end
+    local char = plr.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+    local role = getRole(plr)
+    local col = RCOL[role] or RCOL.unknown
 
--- Katil Takip (kamera kilidi)
-local camLockC;local camLockOn=false
-Tog(P2,"🎥 Katil Takip  (Kamerayı katile kilitle)",function(on)
-    camLockOn=on
-    if on then
-        camLockC=RS.Heartbeat:Connect(function()
-            if not camLockOn then return end
-            for _,plr in pairs(Players:GetPlayers()) do
-                if plr==lp then continue end
-                if getRole(plr)=="murderer" then
-                    local t=plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-                    if t then
-                        cam.CameraType=Enum.CameraType.Scriptable
-                        local r=R()
-                        if r then cam.CFrame=CFrame.lookAt(cam.CFrame.Position,t.Position) end
+    local bill = Instance.new("BillboardGui")
+    bill.Name = "MM2ESP"
+    bill.AlwaysOnTop = true
+    bill.Size = UDim2.fromOffset(isMobile and 120 or 150, isMobile and 44 or 52)
+    bill.StudsOffset = Vector3.new(0, 3.5, 0)
+    bill.LightInfluence = 0
+
+    local bg = Instance.new("Frame", bill)
+    bg.Size = UDim2.new(1,0,1,0)
+    bg.BackgroundColor3 = Color3.fromRGB(12,12,20)
+    bg.BackgroundTransparency = 0.25
+    bg.BorderSizePixel = 0
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 6)
+    local st = Instance.new("UIStroke", bg)
+    st.Color = col; st.Thickness = 1.2
+
+    local rl = Instance.new("TextLabel", bg)
+    rl.Size = UDim2.new(1,0,0.4,0)
+    rl.BackgroundTransparency = 1
+    rl.Text = RTXT[role] or "❔"
+    rl.TextSize = isMobile and 10 or 11
+    rl.Font = Enum.Font.GothamBold
+    rl.TextColor3 = col
+
+    local nl = Instance.new("TextLabel", bg)
+    nl.Size = UDim2.new(1,0,0.3,0)
+    nl.Position = UDim2.new(0,0,0.4,0)
+    nl.BackgroundTransparency = 1
+    nl.Text = plr.Name
+    nl.TextSize = isMobile and 9 or 10
+    nl.Font = Enum.Font.Gotham
+    nl.TextColor3 = Color3.new(1,1,1)
+
+    local hl = Instance.new("TextLabel", bg)
+    hl.Size = UDim2.new(1,0,0.3,0)
+    hl.Position = UDim2.new(0,0,0.7,0)
+    hl.BackgroundTransparency = 1
+    hl.TextSize = isMobile and 8 or 9
+    hl.Font = Enum.Font.Gotham
+    hl.TextColor3 = Color3.fromRGB(100,255,100)
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hl.Text = "❤ " .. math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth)
+    end
+
+    bill.Parent = head
+    espData[plr] = {bill=bill, head=head, role=role}
+end
+
+local function removeESPFor(plr)
+    local d = espData[plr]
+    if d then pcall(function() d.bill:Destroy() end); espData[plr] = nil end
+end
+
+local function clearAllESP()
+    for plr, _ in pairs(espData) do removeESPFor(plr) end
+    espData = {}
+end
+
+local function refreshAllESP()
+    clearAllESP()
+    if not espOn then return end
+    for _, plr in ipairs(Players:GetPlayers()) do createESPFor(plr) end
+end
+
+local function startESP()
+    espOn = true
+    refreshAllESP()
+    -- Health güncelleme — 0.3sn'de bir
+    local acc = 0
+    espUpdateConn = RS.Heartbeat:Connect(function(dt)
+        acc = acc + dt
+        if acc < 0.3 then return end
+        acc = 0
+        for plr, data in pairs(espData) do
+            if not data.bill.Parent or not plr.Character then
+                removeESPFor(plr)
+            else
+                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                if hum and data.bill:FindFirstChildOfClass("Frame") then
+                    local bg = data.bill:FindFirstChildOfClass("Frame")
+                    local hl = bg and bg:FindFirstChild("TextLabel", true)
+                    -- health label 3. label
+                    local labels = {}
+                    if bg then
+                        for _, c in ipairs(bg:GetChildren()) do
+                            if c:IsA("TextLabel") then table.insert(labels, c) end
+                        end
                     end
-                    break
+                    if labels[3] then
+                        labels[3].Text = "❤ " .. math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth)
+                    end
                 end
             end
+        end
+    end)
+end
+
+local function stopESP()
+    espOn = false
+    if espUpdateConn then espUpdateConn:Disconnect(); espUpdateConn = nil end
+    clearAllESP()
+end
+
+-- ══════════════════════════════════════════════
+--  COIN / WEAPON ESP
+-- ══════════════════════════════════════════════
+local coinESPObjs, coinESPOn = {}, false
+local function clearCoinESP()
+    for _, o in ipairs(coinESPObjs) do pcall(function() o:Destroy() end) end
+    coinESPObjs = {}
+end
+local function rebuildCoinESP()
+    clearCoinESP()
+    if not coinESPOn then return end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local n = obj.Name:lower()
+            if n:find("coin") or n == "credit" then
+                local bill = Instance.new("BillboardGui")
+                bill.AlwaysOnTop = true
+                bill.Size = UDim2.fromOffset(40, 18)
+                bill.StudsOffset = Vector3.new(0, 2, 0)
+                bill.LightInfluence = 0
+                local l = Instance.new("TextLabel", bill)
+                l.Size = UDim2.new(1,0,1,0)
+                l.BackgroundTransparency = 1
+                l.Text = "💰"; l.TextSize = 13
+                bill.Parent = obj
+                table.insert(coinESPObjs, bill)
+            end
+        end
+    end
+end
+
+local weaponESPObjs, weaponESPOn = {}, false
+local function clearWeaponESP()
+    for _, o in ipairs(weaponESPObjs) do pcall(function() o:Destroy() end) end
+    weaponESPObjs = {}
+end
+local function rebuildWeaponESP()
+    clearWeaponESP()
+    if not weaponESPOn then return end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Tool") then
+            local n = obj.Name:lower()
+            local isK, isG = false, false
+            for _, k in pairs(KNIFE_KW) do if n:find(k) then isK=true; break end end
+            for _, g in pairs(GUN_KW)   do if n:find(g) then isG=true; break end end
+            if isK or isG then
+                local handle = obj:FindFirstChild("Handle")
+                if handle then
+                    local bill = Instance.new("BillboardGui")
+                    bill.AlwaysOnTop = true
+                    bill.Size = UDim2.fromOffset(60, 18)
+                    bill.StudsOffset = Vector3.new(0, 2, 0)
+                    bill.LightInfluence = 0
+                    local l = Instance.new("TextLabel", bill)
+                    l.Size = UDim2.new(1,0,1,0)
+                    l.BackgroundTransparency = 1
+                    l.Text = isK and "🔪" or "🔫"
+                    l.TextSize = 12
+                    l.TextColor3 = isK and Color3.fromRGB(255,80,80) or Color3.fromRGB(80,150,255)
+                    bill.Parent = handle
+                    table.insert(weaponESPObjs, bill)
+                end
+            end
+        end
+    end
+end
+
+-- ══════════════════════════════════════════════
+--  TRACER
+-- ══════════════════════════════════════════════
+local tracerLines, tracerConn = {}, nil
+local function clearTracers()
+    for _, l in pairs(tracerLines) do pcall(function() l.Visible=false; l:Remove() end) end
+    tracerLines = {}
+end
+local function startTracers()
+    if not hasDrawing then return end
+    clearTracers()
+    tracerConn = RS.RenderStepped:Connect(function()
+        for _, l in pairs(tracerLines) do pcall(function() l.Visible=false end) end
+        local idx = 1
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr == lp then continue end
+            local role = getRole(plr)
+            if role ~= "murderer" and role ~= "sheriff" then continue end
+            local root = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+            if not root then continue end
+            local sp, vis = cam:WorldToViewportPoint(root.Position)
+            if not vis then continue end
+            local line = tracerLines[idx]
+            if not line then
+                line = Drawing.new("Line")
+                line.Thickness = 1.8
+                tracerLines[idx] = line
+            end
+            line.From = Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y - 20)
+            line.To = Vector2.new(sp.X, sp.Y)
+            line.Color = role == "murderer" and Color3.fromRGB(255,70,70) or Color3.fromRGB(70,150,255)
+            line.Visible = true
+            idx = idx + 1
+        end
+    end)
+end
+local function stopTracers()
+    if tracerConn then tracerConn:Disconnect(); tracerConn = nil end
+    clearTracers()
+end
+
+-- ══════════════════════════════════════════════
+--  FLING SİSTEMİ
+-- ══════════════════════════════════════════════
+local function flingPlayer(plr, power, direction)
+    local char = plr.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    power = power or 150
+    direction = direction or Vector3.new(math.random(-1,1), math.random(0,1), math.random(-1,1))
+
+    for _, child in ipairs(root:GetChildren()) do
+        if child:IsA("LinearVelocity") or child:IsA("BodyVelocity") or child:IsA("AngularVelocity") then
+            child:Destroy()
+        end
+    end
+
+    local attach = Instance.new("Attachment", root)
+    local lv = Instance.new("LinearVelocity")
+    lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+    lv.VectorVelocity = direction.Unit * power
+    lv.MaxForce = math.huge
+    lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+    lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
+    lv.Attachment0 = attach
+    lv.Parent = root
+    Debris:AddItem(lv, 0.5)
+    Debris:AddItem(attach, 0.5)
+
+    pcall(function()
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Physics) end
+    end)
+end
+
+-- ══════════════════════════════════════════════
+--  SAYFA 1 — ESP
+-- ══════════════════════════════════════════════
+local P1 = pages[1]
+Section(P1, "Rol ESP")
+Toggle(P1, "👁️ Rol ESP", function(on)
+    if on then startESP() else stopESP() end
+end)
+Button(P1, "🔄 ESP Yenile", Color3.fromRGB(30,30,46), function()
+    if espOn then refreshAllESP() end
+end)
+
+Section(P1, "Eşya ESP")
+Toggle(P1, "💰 Coin ESP", function(on)
+    coinESPOn = on
+    if on then rebuildCoinESP() else clearCoinESP() end
+end)
+Toggle(P1, "🔪 Silah ESP", function(on)
+    weaponESPOn = on
+    if on then rebuildWeaponESP() else clearWeaponESP() end
+end)
+Button(P1, "🔄 Silah ESP Yenile", Color3.fromRGB(30,30,46), rebuildWeaponESP)
+
+-- ══════════════════════════════════════════════
+--  SAYFA 2 — OYUN
+-- ══════════════════════════════════════════════
+local P2 = pages[2]
+Section(P2, "Otomatik")
+Toggle(P2, "💰 Auto Coin", function(on)
+    if on then
+        _G._autoCoin = RS.Heartbeat:Connect(function()
+            local r = R(); if not r then return end
+            local best, bd = nil, math.huge
+            for _, o in ipairs(workspace:GetDescendants()) do
+                if o:IsA("BasePart") then
+                    local n = o.Name:lower()
+                    if n:find("coin") or n == "credit" then
+                        local d = (o.Position - r.Position).Magnitude
+                        if d < bd and d < 80 then bd = d; best = o end
+                    end
+                end
+            end
+            if best then r.CFrame = CFrame.new(best.Position + Vector3.new(0,3,0)) end
         end)
     else
-        if camLockC then camLockC:Disconnect();camLockC=nil end
-        cam.CameraType=Enum.CameraType.Custom
+        if _G._autoCoin then _G._autoCoin:Disconnect(); _G._autoCoin = nil end
     end
 end)
 
--- Silaha Teleport
-Sec(P2,"TEK TUŞ")
-Btn(P2,"🔪 Bıçağa Işınlan  (Yerdeki bıçak)",Color3.fromRGB(30,30,50),function()
-    local r=R();if not r then return end
-    local best,bestD=nil,math.huge
-    for _,obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("Tool") then
-            local n=obj.Name:lower()
-            local isk=false
-            for _,k in pairs(KNIFE_KW) do if n:find(k) then isk=true;break end end
-            if isk then
-                local h2=obj:FindFirstChild("Handle")
-                if h2 then
-                    local d=(h2.Position-r.Position).Magnitude
-                    if d<bestD then bestD=d;best=h2 end
-                end
-            end
-        end
-    end
-    if best then r.CFrame=CFrame.new(best.Position+Vector3.new(0,3,0)) end
-end)
-
-Btn(P2,"🔫 Silaha Işınlan  (Yerdeki silah)",Color3.fromRGB(30,30,50),function()
-    local r=R();if not r then return end
-    local best,bestD=nil,math.huge
-    for _,obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("Tool") then
-            local n=obj.Name:lower()
-            local isg=false
-            for _,g in pairs(GUN_KW) do if n:find(g) then isg=true;break end end
-            if isg then
-                local h2=obj:FindFirstChild("Handle")
-                if h2 then
-                    local d=(h2.Position-r.Position).Magnitude
-                    if d<bestD then bestD=d;best=h2 end
-                end
-            end
-        end
-    end
-    if best then r.CFrame=CFrame.new(best.Position+Vector3.new(0,3,0)) end
-end)
-
--- Katilden Kaç
-local fleeC;local fleeOn=false
-Sec(P2,"KAÇIŞ")
-Tog(P2,"🏃 Katilden Kaç  (Otomatik uzaklaş)",function(on)
-    fleeOn=on
+Section(P2, "Kaçış")
+Toggle(P2, "🏃 Katilden Kaç", function(on)
     if on then
-        fleeC=RS.Heartbeat:Connect(function()
-            local r=R();if not r then return end
-            for _,plr in pairs(Players:GetPlayers()) do
-                if plr==lp then continue end
-                if getRole(plr)=="murderer" then
-                    local t=plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+        _G._flee = RS.Heartbeat:Connect(function()
+            local r = R(); if not r then return end
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= lp and getRole(p) == "murderer" then
+                    local t = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
                     if t then
-                        local diff=(r.Position-t.Position)
-                        if diff.Magnitude<25 then
-                            local away=diff.Unit*28+Vector3.new(0,5,0)
-                            r.CFrame=CFrame.new(r.Position+away)
+                        local diff = r.Position - t.Position
+                        if diff.Magnitude < 22 then
+                            r.CFrame = CFrame.new(r.Position + diff.Unit * 25 + Vector3.new(0,5,0))
                         end
                     end
                     break
                 end
             end
         end)
-    else if fleeC then fleeC:Disconnect();fleeC=nil end end
-end)
-
--- Respawn Koruması
-local respC
-Sec(P2,"KORUMA")
-Tog(P2,"🛡️ Respawn Koruması  (Ölünce hemen kalk)",function(on)
-    if on then
-        local h=H();if not h then return end
-        respC=h.Died:Connect(function() task.wait(0.4);lp:LoadCharacter() end)
-    else if respC then respC:Disconnect();respC=nil end end
-end)
-
--- Sahte Lag
-local lagOn=false;local lagC;local savedCF
-Tog(P2,"💫 Sahte Lag  (Zor vurulursun)",function(on)
-    lagOn=on
-    if on then
-        local tick_=0
-        lagC=RS.Heartbeat:Connect(function(dt)
-            tick_=tick_+dt
-            local r=R();if not r then return end
-            if tick_%0.12 < dt then
-                savedCF=r.CFrame
-            elseif tick_%0.12 > 0.06 and savedCF then
-                r.CFrame=savedCF
-            end
-        end)
-    else if lagC then lagC:Disconnect();lagC=nil end end
-end)
-
--- ── Otomatik Silah / Bıçak Atma ───────────────
-Sec(P2,"OTOMATİK SALDIRI")
-local autoThrowC;local autoThrowOn=false
-
--- Hedef (Oyuncu sekmesinden ayarlanır)
-local _targetPlayer=nil  -- oyuncu sekmesinden set edilecek
-
-local function findThrowRemote()
-    -- MM2'de farklı obfuscated isimler olabilir, hepsini dene
-    for _,obj in pairs(game:GetDescendants()) do
-        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-            local n=obj.Name:lower()
-            if n:find("throw") or n:find("attack") or n:find("swing") or n:find("stab") or n:find("hit") or n:find("slash") then
-                return obj
-            end
-        end
+    else
+        if _G._flee then _G._flee:Disconnect(); _G._flee = nil end
     end
-    return nil
-end
-
-Tog(P2,"🔪 Oto Bıçak At  (Hedefe sürekli at)",function(on)
-    autoThrowOn=on
-    if on then
-        autoThrowC=RS.Heartbeat:Connect(function()
-            if not autoThrowOn then return end
-            local r=R();if not r then return end
-            -- Karakter içindeki bıçağı bul
-            local c=C();if not c then return end
-            local knife=nil
-            for _,t in pairs(c:GetChildren()) do
-                if t:IsA("Tool") then
-                    local n=t.Name:lower()
-                    for _,k in pairs(KNIFE_KW) do if n:find(k) then knife=t;break end end
-                end
-            end
-            if not knife then return end
-
-            -- Hedef
-            local target=_targetPlayer or (function()
-                -- Hedef yoksa en yakın oyuncuyu seç
-                local best,bestD=nil,math.huge
-                for _,plr in pairs(Players:GetPlayers()) do
-                    if plr==lp then continue end
-                    local t2=plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-                    if t2 then
-                        local d=(t2.Position-r.Position).Magnitude
-                        if d<bestD then bestD=d;best=plr end
-                    end
-                end
-                return best
-            end)()
-
-            if not target then return end
-            local tRoot=target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-            if not tRoot then return end
-
-            -- RemoteEvent dene
-            local remote=findThrowRemote()
-            if remote then
-                pcall(function() remote:FireServer(tRoot.Position) end)
-            end
-
-            -- Alternatif: Tool activate + mouse target
-            pcall(function()
-                if knife.Activated then knife.Activated:Fire() end
-            end)
-            pcall(function()
-                local ms=lp:GetMouse()
-                if ms then ms.Target=tRoot end
-            end)
-            -- Hızlı devre için kısa bekle
-            task.wait(0.1)
-        end)
-    else if autoThrowC then autoThrowC:Disconnect();autoThrowC=nil end end
-end)
-
-Tog(P2,"🔫 Oto Silah At  (Hedefe sürekli ateş)",function(on)
-    -- Şerif silahı için aynı mantık
-    local c2=RS.Heartbeat:Connect(function()
-        if not on then return end
-        local r=R();if not r then return end
-        local c=C();if not c then return end
-        local gun=nil
-        for _,t in pairs(c:GetChildren()) do
-            if t:IsA("Tool") then
-                local n=t.Name:lower()
-                for _,g in pairs(GUN_KW) do if n:find(g) then gun=t;break end end
-            end
-        end
-        if not gun then return end
-        local target=_targetPlayer
-        if not target then
-            local best,bestD=nil,math.huge
-            for _,plr in pairs(Players:GetPlayers()) do
-                if plr==lp then continue end
-                local t2=plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-                if t2 then local d=(t2.Position-r.Position).Magnitude; if d<bestD then bestD=d;best=plr end end
-            end
-            target=best
-        end
-        if not target then return end
-        local tRoot=target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-        if not tRoot then return end
-        local remote=findThrowRemote()
-        if remote then pcall(function() remote:FireServer(tRoot.Position) end) end
-        pcall(function() if gun.Activated then gun.Activated:Fire() end end)
-        task.wait(0.15)
-    end)
-    if not on and c2 then c2:Disconnect() end
 end)
 
 -- ══════════════════════════════════════════════
--- TAB 3 — OYUNCU
+--  SAYFA 3 — OYUNCU (FLING DAHİL)
 -- ══════════════════════════════════════════════
-local P3=pages[3]
+local P3 = pages[3]
+local selectedPlayer = nil
 
--- Seçili oyuncu
-local selPlr=nil
-local selLbl=Instance.new("TextLabel",P3)
-selLbl.Size=UDim2.new(1,0,0,20);selLbl.Text="🎯 Seçili: Yok"
-selLbl.TextColor3=Color3.fromRGB(30,120,255);selLbl.TextSize=11
-selLbl.Font=Enum.Font.GothamSemibold;selLbl.BackgroundTransparency=1
+local selLabel = Instance.new("TextLabel", P3)
+selLabel.Size = UDim2.new(1, 0, 0, 26)
+selLabel.BackgroundColor3 = Color3.fromRGB(24,24,36)
+selLabel.Text = "🎯 Seçili: Yok"
+selLabel.TextSize = isMobile and 12 or 11
+selLabel.Font = Enum.Font.GothamSemibold
+selLabel.TextColor3 = Color3.fromRGB(45,130,255)
+Instance.new("UICorner", selLabel).CornerRadius = UDim.new(0, 6)
 
--- Oyuncu listesi
-Sec(P3,"OYUNCU LİSTESİ  (Role renkli)")
-local listSF=Instance.new("ScrollingFrame",P3)
-listSF.Size=UDim2.new(1,0,0,140);listSF.BackgroundColor3=Color3.fromRGB(13,13,21)
-listSF.BorderSizePixel=0;listSF.ScrollBarThickness=2
-listSF.ScrollBarImageColor3=Color3.fromRGB(30,120,255);listSF.CanvasSize=UDim2.new(0,0,0,0)
-Instance.new("UICorner",listSF).CornerRadius=UDim.new(0,7)
+Section(P3, "Oyuncu Listesi")
+local playerList = Instance.new("ScrollingFrame", P3)
+playerList.Size = UDim2.new(1, 0, 0, isMobile and 140 or 160)
+playerList.BackgroundColor3 = Color3.fromRGB(18,18,28)
+playerList.BorderSizePixel = 0
+playerList.ScrollBarThickness = isMobile and 5 or 3
+playerList.ScrollBarImageColor3 = Color3.fromRGB(45,130,255)
+playerList.CanvasSize = UDim2.new(0,0,0,0)
+playerList.ScrollingEnabled = true
+Instance.new("UICorner", playerList).CornerRadius = UDim.new(0, 8)
+local plL = Instance.new("UIListLayout", playerList)
+plL.Padding = UDim.new(0, 3)
+local plP = Instance.new("UIPadding", playerList)
+plP.PaddingTop = UDim.new(0, 4)
+plP.PaddingLeft = UDim.new(0, 4)
+plP.PaddingRight = UDim.new(0, 4)
 
-local pBtns={}
-local function refreshList()
-    for _,b in pairs(pBtns) do pcall(function()b:Destroy()end) end;pBtns={}
-    local plrs={}
-    for _,p in pairs(Players:GetPlayers()) do if p~=lp then table.insert(plrs,p) end end
-    if #plrs==0 then
-        local nl=Instance.new("TextLabel",listSF)
-        nl.Size=UDim2.new(1,0,0,28);nl.Position=UDim2.fromOffset(0,4)
-        nl.Text="Başka oyuncu yok";nl.TextSize=10;nl.Font=Enum.Font.Gotham
-        nl.TextColor3=Color3.fromRGB(120,120,150);nl.BackgroundTransparency=1
-        table.insert(pBtns,nl);listSF.CanvasSize=UDim2.new(0,0,0,36);return
+local playerButtons = {}
+local function refreshPlayerList()
+    for _, b in ipairs(playerButtons) do pcall(function() b:Destroy() end) end
+    playerButtons = {}
+    local list = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= lp then table.insert(list, p) end
     end
-    for i,plr in ipairs(plrs) do
-        local y=(i-1)*33
-        local role=getRole(plr);local col=RCOL[role]
-        local b=Instance.new("TextButton",listSF)
-        b.Size=UDim2.new(1,-8,0,28);b.Position=UDim2.fromOffset(4,y+3)
-        b.Text="  "..RTXT[role].."  "..plr.Name;b.TextSize=10
-        b.Font=Enum.Font.GothamSemibold;b.TextXAlignment=Enum.TextXAlignment.Left
-        b.TextColor3=col;b.BackgroundColor3=Color3.fromRGB(18,18,30);b.BorderSizePixel=0
-        Instance.new("UICorner",b).CornerRadius=UDim.new(0,5)
-        local pr=plr
+    if #list == 0 then
+        local l = Instance.new("TextLabel", playerList)
+        l.Size = UDim2.new(1,0,0,30)
+        l.BackgroundTransparency = 1
+        l.Text = "Başka oyuncu yok"
+        l.TextSize = isMobile and 11 or 10
+        l.TextColor3 = Color3.fromRGB(120,120,150)
+        table.insert(playerButtons, l)
+        return
+    end
+    local bh = isMobile and 40 or 34
+    for _, plr in ipairs(list) do
+        local role = getRole(plr)
+        local col = RCOL[role] or RCOL.unknown
+        local b = Instance.new("TextButton", playerList)
+        b.Size = UDim2.new(1,-4,0,bh)
+        b.BackgroundColor3 = Color3.fromRGB(24,24,36)
+        b.Text = "  " .. (RTXT[role] or "❔") .. "  " .. plr.Name
+        b.TextSize = isMobile and 11 or 10
+        b.Font = Enum.Font.GothamSemibold
+        b.TextColor3 = col
+        b.TextXAlignment = Enum.TextXAlignment.Left
+        b.BorderSizePixel = 0
+        b.AutoButtonColor = true
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        local p = plr
         b.MouseButton1Click:Connect(function()
-            selPlr=pr;_targetPlayer=pr
-            selLbl.Text="🎯 Seçili: "..pr.Name.."  ("..RTXT[role]..")"
-            selLbl.TextColor3=col
-            for _,x in pairs(pBtns) do
-                if x:IsA("TextButton") then x.BackgroundColor3=Color3.fromRGB(18,18,30) end
+            selectedPlayer = p
+            selLabel.Text = "🎯 Seçili: " .. p.Name
+            selLabel.TextColor3 = col
+            for _, x in ipairs(playerButtons) do
+                if x:IsA("TextButton") then x.BackgroundColor3 = Color3.fromRGB(24,24,36) end
             end
-            b.BackgroundColor3=Color3.fromRGB(30,120,255)
+            b.BackgroundColor3 = Color3.fromRGB(45,130,255)
         end)
-        table.insert(pBtns,b)
+        table.insert(playerButtons, b)
     end
-    listSF.CanvasSize=UDim2.new(0,0,0,#plrs*33+6)
+    playerList.CanvasSize = UDim2.new(0,0,0,#list*(bh+3)+8)
 end
 
-Btn(P3,"🔄 Listeyi Yenile",Color3.fromRGB(22,22,38),refreshList)
+Button(P3, "🔄 Listeyi Yenile", Color3.fromRGB(30,30,46), refreshPlayerList)
 
-Sec(P3,"OYUNCU İŞLEMLERİ")
-Btn(P3,"📦 Oyuncuya Işınlan",Color3.fromRGB(22,22,38),function()
-    if not selPlr then return end
-    local r=R();local t=selPlr.Character and selPlr.Character:FindFirstChild("HumanoidRootPart")
-    if r and t then r.CFrame=t.CFrame+Vector3.new(3,2,0) end
+Section(P3, "Fling Sistemi")
+Button(P3, "💥 Seçili Oyuncuya Fling", Color3.fromRGB(200,50,60), function()
+    if selectedPlayer then
+        flingPlayer(selectedPlayer, 180, Vector3.new(math.random(-1,1), 1, math.random(-1,1)))
+    end
+end)
+Button(P3, "🚀 Yukarı Fırlat", Color3.fromRGB(60,60,200), function()
+    if selectedPlayer then flingPlayer(selectedPlayer, 200, Vector3.new(0,1,0)) end
+end)
+Button(P3, "🌀 Rastgele Fling", Color3.fromRGB(140,60,200), function()
+    if selectedPlayer then
+        flingPlayer(selectedPlayer, 160, Vector3.new(math.random(-2,2), math.random(0,1), math.random(-2,2)))
+    end
+end)
+Button(P3, "💣 Herkese Fling", Color3.fromRGB(180,40,40), function()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= lp then
+            flingPlayer(p, 150, Vector3.new(math.random(-1,1), 1, math.random(-1,1)))
+        end
+    end
 end)
 
-Btn(P3,"💥 Oyuncuyu Fling",Color3.fromRGB(140,30,30),function()
-    if not selPlr then return end
-    local t=selPlr.Character and selPlr.Character:FindFirstChild("HumanoidRootPart");if not t then return end
-    local v=Instance.new("BodyVelocity",t)
-    v.MaxForce=Vector3.new(math.huge,math.huge,math.huge)
-    v.Velocity=Vector3.new(math.random(-700,700),math.random(400,700),math.random(-700,700))
-    Debris:AddItem(v,0.2)
+Section(P3, "Işınlanma")
+Button(P3, "📦 Oyuncuya Işınlan", Color3.fromRGB(30,30,46), function()
+    if not selectedPlayer then return end
+    local r = R()
+    local t = selectedPlayer.Character and selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if r and t then r.CFrame = t.CFrame + Vector3.new(3,2,0) end
 end)
 
-Btn(P3,"🪂 Havaya Fırlat",Color3.fromRGB(60,60,180),function()
-    if not selPlr then return end
-    local t=selPlr.Character and selPlr.Character:FindFirstChild("HumanoidRootPart");if not t then return end
-    local v=Instance.new("BodyVelocity",t)
-    v.MaxForce=Vector3.new(math.huge,math.huge,math.huge);v.Velocity=Vector3.new(0,1600,0)
-    Debris:AddItem(v,0.15)
-end)
+-- ══════════════════════════════════════════════
+--  SAYFA 4 — KARAKTER
+-- ══════════════════════════════════════════════
+local P4 = pages[4]
+Section(P4, "Hareket")
+Slider(P4, "🏃 Hız", 16, 300, 16, function(v) local h=H(); if h then h.WalkSpeed=v end end)
+Slider(P4, "⬆️ Zıplama", 50, 500, 50, function(v) local h=H(); if h then pcall(function() h.JumpPower=v end) end end)
+Slider(P4, "🎥 FOV", 50, 130, 70, function(v) cam.FieldOfView=v end)
 
--- Oyuncu Takip
-local followC;local followOn=false
-Tog(P3,"🏃 Oyuncu Takip  (Seçili oyuncuyu izle)",function(on)
-    followOn=on
+Section(P4, "Modlar")
+Toggle(P4, "🌫️ Noclip", function(on)
     if on then
-        followC=RS.Heartbeat:Connect(function()
-            local r=R();if not r then return end
-            local t=selPlr and selPlr.Character and selPlr.Character:FindFirstChild("HumanoidRootPart")
-            if t and(t.Position-r.Position).Magnitude>5 then
-                r.CFrame=CFrame.new(t.Position+Vector3.new(3,0,0))
+        _G._noclip = RS.Stepped:Connect(function()
+            local c = C(); if not c then return end
+            for _, p in ipairs(c:GetDescendants()) do
+                if p:IsA("BasePart") then p.CanCollide = false end
             end
         end)
-    else if followC then followC:Disconnect();followC=nil end end
-end)
-
-Btn(P3,"🎯 Bu Oyuncuyu Saldırı Hedefi Yap",Color3.fromRGB(30,120,255),function()
-    if selPlr then _targetPlayer=selPlr end
-end)
-
--- ══════════════════════════════════════════════
--- TAB 4 — KARAKTER
--- ══════════════════════════════════════════════
-local P4=pages[4]
-Sec(P4,"HAREKET")
-Sli(P4,"🏃 Hız",16,300,16,function(v) local h=H();if h then h.WalkSpeed=v end end)
-Sli(P4,"⬆️ Zıplama",50,500,50,function(v)
-    local h=H();if not h then return end
-    pcall(function() h.JumpPower=v end)
-    pcall(function() h.JumpHeight=v/5 end)
-end)
-Sli(P4,"🎥 FOV",50,130,70,function(v) cam.FieldOfView=v end)
-
--- Uçuş
-local flyOn=false;local fV,fG,fC2
-Tog(P4,"🛩️ Uçuş  (WASD + Space/Shift)",function(on)
-    flyOn=on;local r=R()
-    if on and r then
-        fG=Instance.new("BodyGyro",r);fG.MaxTorque=Vector3.new(9e8,9e8,9e8);fG.P=9e4
-        fV=Instance.new("BodyVelocity",r);fV.MaxForce=Vector3.new(9e8,9e8,9e8);fV.Velocity=Vector3.zero
-        fC2=RS.Heartbeat:Connect(function()
-            local rt=R();if not(flyOn and rt)then if fC2 then fC2:Disconnect()end;return end
-            local d=Vector3.zero
-            if UIS:IsKeyDown(Enum.KeyCode.W) then d+=cam.CFrame.LookVector end
-            if UIS:IsKeyDown(Enum.KeyCode.S) then d-=cam.CFrame.LookVector end
-            if UIS:IsKeyDown(Enum.KeyCode.A) then d-=cam.CFrame.RightVector end
-            if UIS:IsKeyDown(Enum.KeyCode.D) then d+=cam.CFrame.RightVector end
-            if UIS:IsKeyDown(Enum.KeyCode.Space)     then d+=Vector3.new(0,1,0) end
-            if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then d-=Vector3.new(0,1,0) end
-            fV.Velocity=d.Magnitude>0 and d.Unit*75 or Vector3.zero
-            fG.CFrame=cam.CFrame
-        end)
     else
-        if fC2 then fC2:Disconnect();fC2=nil end
-        pcall(function() if fV then fV:Destroy()end end);fV=nil
-        pcall(function() if fG then fG:Destroy()end end);fG=nil
+        if _G._noclip then _G._noclip:Disconnect(); _G._noclip = nil end
     end
 end)
 
--- Noclip
-local ncOn=false;local ncC
-Tog(P4,"🌫️ Noclip",function(on)
-    ncOn=on
+Toggle(P4, "🚀 Sonsuz Zıplama", function(on)
     if on then
-        ncC=RS.Stepped:Connect(function()
-            local c=C();if not c then return end
-            for _,p in pairs(c:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide=false end end
-        end)
-    else
-        if ncC then ncC:Disconnect();ncC=nil end
-        local c=C();if c then for _,p in pairs(c:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide=true end end end
-    end
-end)
-
--- Sonsuz Zıplama
-local ijC
-Tog(P4,"🚀 Sonsuz Zıplama",function(on)
-    if on then
-        ijC=UIS.JumpRequest:Connect(function()
-            local h=H();if h and h.FloorMaterial==Enum.Material.Air then h:ChangeState(Enum.HumanoidStateType.Jumping) end
-        end)
-    else if ijC then ijC:Disconnect();ijC=nil end end
-end)
-
-Sec(P4,"KORUMA")
--- God Mode
-local godC
-Tog(P4,"🛡️ God Mode",function(on)
-    local h=H();if not h then return end
-    if on then
-        h.MaxHealth=math.huge;h.Health=math.huge
-        godC=h.HealthChanged:Connect(function() if h and h.Parent then h.Health=math.huge end end)
-    else
-        if godC then godC:Disconnect();godC=nil end
-        pcall(function() h.MaxHealth=100;h.Health=100 end)
-    end
-end)
-
-Tog(P4,"💤 Anti-AFK",function(on)
-    if on then
-        local vu=game:GetService("VirtualUser")
-        RS.Heartbeat:Connect(function()
-            if on then vu:Button2Down(Vector2.zero,cam.CFrame);vu:Button2Up(Vector2.zero,cam.CFrame) end
-        end)
-    end
-end)
-
-Sec(P4,"KİŞİSEL")
--- Invisible
-Tog(P4,"👻 Görünmez  (Karakter gizle)",function(on)
-    local c=C();if not c then return end
-    for _,p in pairs(c:GetDescendants()) do
-        if p:IsA("BasePart") or p:IsA("Decal") then p.LocalTransparencyModifier=on and 1 or 0 end
-    end
-end)
-
--- Sprint (E tuşu)
-local sprintC
-Tog(P4,"⚡ Sprint Tuşu  (E basılı = koş)",function(on)
-    if on then
-        sprintC=RS.Heartbeat:Connect(function()
-            local h=H();if not h then return end
-            if UIS:IsKeyDown(Enum.KeyCode.E) then
-                h.WalkSpeed=math.min(h.WalkSpeed+2,60)
+        _G._infJump = UIS.JumpRequest:Connect(function()
+            local h = H()
+            if h and h.FloorMaterial == Enum.Material.Air then
+                h:ChangeState(Enum.HumanoidStateType.Jumping)
             end
         end)
-    else if sprintC then sprintC:Disconnect();sprintC=nil end end
-end)
-
-Sec(P4,"ANLIK")
-Btn(P4,"☁️ Havaya Zıpla",Color3.fromRGB(25,25,42),function()
-    local r=R();if r then r.CFrame=r.CFrame+Vector3.new(0,60,0) end
-end)
-Btn(P4,"🔄 Respawn",Color3.fromRGB(25,25,42),function() lp:LoadCharacter() end)
-
--- ══════════════════════════════════════════════
--- TAB 5 — GÖRSEL
--- ══════════════════════════════════════════════
-local P5=pages[5]
-local oA=Lighting.Ambient;local oO=Lighting.OutdoorAmbient
-local oB=Lighting.Brightness;local oS=Lighting.GlobalShadows;local oCT=Lighting.ClockTime
-
-Sec(P5,"ORTAM")
-Tog(P5,"💡 Fullbright  (Karanlıkta gör)",function(on)
-    if on then
-        Lighting.Brightness=10;Lighting.ClockTime=14;Lighting.FogEnd=100000
-        Lighting.GlobalShadows=false
-        Lighting.Ambient=Color3.fromRGB(255,255,255);Lighting.OutdoorAmbient=Color3.fromRGB(255,255,255)
     else
-        Lighting.Brightness=oB;Lighting.ClockTime=oCT;Lighting.GlobalShadows=oS
-        Lighting.Ambient=oA;Lighting.OutdoorAmbient=oO
+        if _G._infJump then _G._infJump:Disconnect(); _G._infJump = nil end
     end
 end)
-Tog(P5,"🌙 Gece Modu",function(on)
-    Lighting.ClockTime=on and 0 or oCT
-    Lighting.Ambient=on and Color3.fromRGB(20,20,50) or oA
-end)
-Tog(P5,"🌁 Sisi Kaldır",function(on)
-    Lighting.FogEnd=on and 999999 or 1000;Lighting.FogStart=on and 999990 or 0
+
+Section(P4, "Koruma")
+Toggle(P4, "🛡️ God Mode", function(on)
+    local h = H(); if not h then return end
+    if on then
+        h.MaxHealth = math.huge; h.Health = math.huge
+        _G._god = h.HealthChanged:Connect(function()
+            if h and h.Parent then h.Health = math.huge end
+        end)
+    else
+        if _G._god then _G._god:Disconnect(); _G._god = nil end
+        pcall(function() h.MaxHealth = 100; h.Health = 100 end)
+    end
 end)
 
-Sec(P5,"KARAKTER")
-local chamsC
-Tog(P5,"🌈 Chams  (Gökkuşağı renk)",function(on)
+Toggle(P4, "👻 Görünmez", function(on)
+    local c = C(); if not c then return end
+    for _, p in ipairs(c:GetDescendants()) do
+        if p:IsA("BasePart") or p:IsA("Decal") then
+            p.LocalTransparencyModifier = on and 1 or 0
+        end
+    end
+end)
+
+-- ══════════════════════════════════════════════
+--  SAYFA 5 — GÖRSEL
+-- ══════════════════════════════════════════════
+local P5 = pages[5]
+local origL = {Ambient=Lighting.Ambient, Brightness=Lighting.Brightness, ClockTime=Lighting.ClockTime, FogEnd=Lighting.FogEnd, GlobalShadows=Lighting.GlobalShadows, OutdoorAmbient=Lighting.OutdoorAmbient}
+
+Section(P5, "Ortam")
+Toggle(P5, "💡 Fullbright", function(on)
     if on then
-        local t2=0
-        chamsC=RS.Heartbeat:Connect(function(dt)
-            t2=t2+dt;local c=C();if not c then return end
-            for _,p in pairs(c:GetDescendants()) do
-                if p:IsA("BasePart") then p.Color=Color3.fromHSV((t2*0.4)%1,1,1) end
+        Lighting.Brightness = 10
+        Lighting.ClockTime = 14
+        Lighting.FogEnd = 100000
+        Lighting.GlobalShadows = false
+        Lighting.Ambient = Color3.fromRGB(255,255,255)
+        Lighting.OutdoorAmbient = Color3.fromRGB(255,255,255)
+    else
+        for k,v in pairs(origL) do Lighting[k] = v end
+    end
+end)
+
+Toggle(P5, "🌈 Chams", function(on)
+    if on then
+        local t = 0
+        _G._chams = RS.Heartbeat:Connect(function(dt)
+            t = t + dt
+            local c = C(); if not c then return end
+            for _, p in ipairs(c:GetDescendants()) do
+                if p:IsA("BasePart") then p.Color = Color3.fromHSV((t*0.4)%1, 1, 1) end
             end
         end)
-    else if chamsC then chamsC:Disconnect();chamsC=nil end end
+    else
+        if _G._chams then _G._chams:Disconnect(); _G._chams = nil end
+    end
 end)
 
 -- ══════════════════════════════════════════════
--- TAB 6 — AYAR
+--  SAYFA 6 — AYAR
 -- ══════════════════════════════════════════════
-local P6=pages[6]
-Sec(P6,"KLAVYE KISAYOLLARI")
-local ki=Instance.new("Frame",P6);ki.Size=UDim2.new(1,0,0,55)
-ki.BackgroundColor3=Color3.fromRGB(15,15,24);ki.BorderSizePixel=0
-Instance.new("UICorner",ki).CornerRadius=UDim.new(0,7)
-local kl=Instance.new("TextLabel",ki)
-kl.Size=UDim2.new(1,-14,1,0);kl.Position=UDim2.new(0,7,0,0)
-kl.Text="RightShift → Aç/Kapat\nDelete → Kapat  |  Insert → Aç\nE (basılı) → Sprint"
-kl.TextSize=10;kl.Font=Enum.Font.Gotham;kl.TextColor3=Color3.fromRGB(180,180,210)
-kl.TextWrapped=true;kl.TextXAlignment=Enum.TextXAlignment.Left;kl.BackgroundTransparency=1
+local P6 = pages[6]
 
-Sec(P6,"HIZLI TEMİZLE")
-Btn(P6,"🗑️ Tüm ESP Kapat",Color3.fromRGB(22,22,38),function()
-    clearESP();clearCoinESP();clearWESP();clearTracers()
-    for _,l in pairs(chLines) do pcall(function()l.Visible=false;l:Remove()end) end;chLines={}
-    alertF.Visible=false
+Section(P6, "Bilgi")
+local info = Instance.new("TextLabel", P6)
+info.Size = UDim2.new(1,0,0,isMobile and 70 or 60)
+info.BackgroundColor3 = Color3.fromRGB(24,24,36)
+info.Text = isMobile
+    and "📱 Mobil Mod Aktif\nFAB butonuna dokun → aç/kapat\nSürükle → taşı"
+    or  "🖥️ PC Mod Aktif\nRightShift → Aç/Kapat"
+info.TextSize = isMobile and 11 or 10
+info.Font = Enum.Font.Gotham
+info.TextColor3 = Color3.fromRGB(180,180,210)
+info.TextWrapped = true
+Instance.new("UICorner", info).CornerRadius = UDim.new(0, 8)
+
+Section(P6, "Temizle")
+Button(P6, "🗑️ Tüm ESP Kapat", Color3.fromRGB(30,30,46), function()
+    stopESP(); clearCoinESP(); coinESPOn = false
+    clearWeaponESP(); weaponESPOn = false
+    stopTracers()
 end)
-Btn(P6,"🔄 Oyuncu Listesi Yenile",Color3.fromRGB(22,22,38),refreshList)
-Btn(P6,"🎥 Kamerayı Sıfırla",Color3.fromRGB(22,22,38),function()
-    cam.CameraType=Enum.CameraType.Custom;cam.FieldOfView=70
+Button(P6, "🎥 Kamerayı Sıfırla", Color3.fromRGB(30,30,46), function()
+    cam.CameraType = Enum.CameraType.Custom
+    cam.FieldOfView = 70
 end)
 
-Sec(P6,"HAKKINDA")
-local ab=Instance.new("Frame",P6);ab.Size=UDim2.new(1,0,0,82)
-ab.BackgroundColor3=Color3.fromRGB(15,15,24);ab.BorderSizePixel=0
-Instance.new("UICorner",ab).CornerRadius=UDim.new(0,7)
-local al=Instance.new("TextLabel",ab)
-al.Size=UDim2.new(1,-14,1,0);al.Position=UDim2.new(0,7,0,0);al.TextSize=9
-al.Font=Enum.Font.Gotham;al.TextColor3=Color3.fromRGB(170,170,205)
-al.TextWrapped=true;al.BackgroundTransparency=1;al.TextXAlignment=Enum.TextXAlignment.Left
-al.Text="🔪 MM2 HUB — TAM SÜRÜM\n\n✅ Rol ESP · Tracer · Crosshair · Coin ESP · Silah ESP\n✅ Auto Coin · Katil Takip · Silaha Işınlan · Katilden Kaç\n✅ Oto Bıçak/Silah At · Oyuncu Listesi · Takip · Fling\n✅ Uçuş · Noclip · God · Sprint · FOV · Chams · Fullbright"
-
 -- ══════════════════════════════════════════════
--- TOGGLE BUTONU
+--  MOBİL UYUMLU AÇ/KAPAT BUTONU
 -- ══════════════════════════════════════════════
-local togBtn=Instance.new("TextButton",sg)
-togBtn.Size=UDim2.fromOffset(40,40);togBtn.Position=UDim2.new(0,8,0.5,-20)
-togBtn.Text="🔪";togBtn.TextSize=18;togBtn.BackgroundColor3=Color3.fromRGB(30,120,255)
-togBtn.BorderSizePixel=0
-Instance.new("UICorner",togBtn).CornerRadius=UDim.new(1,0)
-do local s=Instance.new("UIStroke",togBtn);s.Color=Color3.new(1,1,1);s.Thickness=1 end
-togBtn.MouseButton1Click:Connect(function() win.Visible=not win.Visible end)
+local fabSize = isMobile and 64 or 56
+local toggleFab = Instance.new("TextButton", sg)
+toggleFab.Size = UDim2.fromOffset(fabSize, fabSize)
+toggleFab.Position = UDim2.new(0, 16, 0.5, -fabSize/2)
+toggleFab.BackgroundColor3 = Color3.fromRGB(45,130,255)
+toggleFab.Text = "🔪"
+toggleFab.TextSize = isMobile and 28 or 24
+toggleFab.Font = Enum.Font.GothamBold
+toggleFab.BorderSizePixel = 0
+toggleFab.AutoButtonColor = false
+Instance.new("UICorner", toggleFab).CornerRadius = UDim.new(1,0)
 
-UIS.InputBegan:Connect(function(i,gp)
+local fabStroke = Instance.new("UIStroke", toggleFab)
+fabStroke.Color = Color3.new(1,1,1)
+fabStroke.Thickness = 1.5
+
+-- Pulse (mobilde hafif)
+local pulse = TS:Create(toggleFab, TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+    Size = UDim2.fromOffset(fabSize + 6, fabSize + 6),
+})
+pulse:Play()
+
+-- FAB SÜRÜKLEME (mobil uyumlu)
+local fabDrag, fabStart, fabStartP
+local fabMoved = false
+
+toggleFab.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        fabDrag = true
+        fabMoved = false
+        fabStart = i.Position
+        fabStartP = toggleFab.Position
+    end
+end)
+
+UIS.InputChanged:Connect(function(i)
+    if fabDrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+        local d = i.Position - fabStart
+        if d.Magnitude > 8 then fabMoved = true end
+        if fabMoved then
+            toggleFab.Position = UDim2.new(
+                fabStartP.X.Scale, fabStartP.X.Offset + d.X,
+                fabStartP.Y.Scale, fabStartP.Y.Offset + d.Y
+            )
+        end
+    end
+end)
+
+UIS.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        fabDrag = false
+        -- Sadece sürüklenmediyse tıklama say
+        if not fabMoved then
+            toggleTablet()
+        end
+    end
+end)
+
+-- ─── Tablet Aç/Kapat ───
+local tabletVisible = true
+
+function toggleTablet()
+    tabletVisible = not tabletVisible
+    if tabletVisible then
+        tablet.Visible = true
+        TS:Create(tablet, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Size = UDim2.fromOffset(TW, TH),
+        }):Play()
+        overlay.Visible = false
+    else
+        TS:Create(tablet, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
+            Size = UDim2.fromOffset(0, 0),
+            Position = UDim2.new(0.5, 0, 0.5, 0),
+        }):Play()
+        task.delay(0.22, function() tablet.Visible = false end)
+        overlay.Visible = false
+    end
+end
+
+closeBtn.MouseButton1Click:Connect(toggleTablet)
+
+-- Minimize
+local minimized = false
+minBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    TS:Create(tablet, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+        Size = minimized and UDim2.fromOffset(TW, HEADER_H) or UDim2.fromOffset(TW, TH),
+    }):Play()
+    minBtn.Text = minimized and "+" or "—"
+end)
+
+-- Klavye (PC için)
+UIS.InputBegan:Connect(function(i, gp)
     if gp then return end
-    if i.KeyCode==Enum.KeyCode.RightShift then win.Visible=not win.Visible
-    elseif i.KeyCode==Enum.KeyCode.Delete  then win.Visible=false
-    elseif i.KeyCode==Enum.KeyCode.Insert  then win.Visible=true end
-end)
-
--- Karakter yenilenince
-lp.CharacterAdded:Connect(function(char)
-    task.wait(0.8);flyOn=false
-    if fC2 then fC2:Disconnect();fC2=nil end
-    pcall(function() if fV then fV:Destroy()end end);fV=nil
-    pcall(function() if fG then fG:Destroy()end end);fG=nil
-    if ncOn then
-        if ncC then ncC:Disconnect()end
-        ncC=RS.Stepped:Connect(function()
-            for _,p in pairs(char:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide=false end end
-        end)
+    if i.KeyCode == Enum.KeyCode.RightShift then toggleTablet()
+    elseif i.KeyCode == Enum.KeyCode.Delete then
+        if tabletVisible then toggleTablet() end
+    elseif i.KeyCode == Enum.KeyCode.Insert then
+        if not tabletVisible then toggleTablet() end
     end
-    if espOn then task.wait(1);buildESP() end
 end)
 
-Players.PlayerAdded:Connect(function()   task.wait(0.5);refreshList();if espOn then buildESP() end end)
-Players.PlayerRemoving:Connect(function() task.wait(0.1);refreshList();if espOn then buildESP() end end)
+-- ══════════════════════════════════════════════
+--  OLAYLAR
+-- ══════════════════════════════════════════════
+lp.CharacterAdded:Connect(function()
+    task.wait(0.8)
+    if espOn then refreshAllESP() end
+end)
+Players.PlayerAdded:Connect(function(plr)
+    task.wait(0.5)
+    refreshPlayerList()
+    if espOn then createESPFor(plr) end
+end)
+Players.PlayerRemoving:Connect(function(plr)
+    removeESPFor(plr)
+    roleCache[plr] = nil
+    task.wait(0.1)
+    refreshPlayerList()
+end)
 
-refreshList()
-print("[MM2 HUB TAM] Hazır! RightShift = aç/kapat")
+task.wait(0.5)
+refreshPlayerList()
+switchTab(1)
+
+print("[MM2 HUB — MOBILE] Hazır! " .. (isMobile and "FAB'a dokun" or "RightShift"))
