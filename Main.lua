@@ -1,6 +1,6 @@
 --[[
-    MM2 HUB — MOBILE COMPATIBLE
-    Responsive UI | Touch Optimized | Fling System
+    MM2 HUB — MOBILE COMPATIBLE (FIXED)
+    Responsive UI | Touch Optimized | Fling System | Position Memory
 ]]
 
 local Players   = game:GetService("Players")
@@ -19,14 +19,11 @@ local cam  = workspace.CurrentCamera
 local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
 local isTablet = UIS.TouchEnabled and UIS.KeyboardEnabled
 
--- ═══ EKRAN BOYUTUNA GÖRE ÖLÇEK ═══
+-- ═══ ÖLÇEK ═══
 local function getScale()
     local vp = cam.ViewportSize
-    local baseW = 540
-    local baseH = 420
-    -- Küçük ekranda küçült, büyükte büyüt
-    local scaleX = math.min(vp.X / baseW * 0.9, 1)
-    local scaleY = math.min(vp.Y / baseH * 0.9, 1)
+    local scaleX = math.min(vp.X / 540 * 0.9, 1)
+    local scaleY = math.min(vp.Y / 420 * 0.9, 1)
     return math.min(scaleX, scaleY)
 end
 
@@ -34,13 +31,12 @@ local function isSmallScreen()
     return cam.ViewportSize.X < 600 or cam.ViewportSize.Y < 500
 end
 
--- Boyutları responsive yap
 local scale = getScale()
 local TW = math.floor(540 * scale)
 local TH = math.floor(420 * scale)
 local SIDEBAR_W = isSmallScreen() and 90 or 130
 local HEADER_H = isMobile and 44 or 52
-local BTN_HEIGHT = isMobile and 42 or 36  -- mobilde daha büyük
+local BTN_HEIGHT = isMobile and 42 or 36
 
 local OLD = pgui:FindFirstChild("MM2Tablet")
 if OLD then OLD:Destroy() end
@@ -96,7 +92,7 @@ local RTXT = {
 }
 
 -- ══════════════════════════════════════════════
---  GUI — RESPONSIVE TABLET
+--  GUI
 -- ══════════════════════════════════════════════
 local sg = Instance.new("ScreenGui")
 sg.Name = "MM2Tablet"
@@ -121,6 +117,9 @@ tablet.BorderSizePixel = 0
 tablet.ClipsDescendants = true
 tablet.Active = true
 Instance.new("UICorner", tablet).CornerRadius = UDim.new(0, isMobile and 12 or 16)
+
+-- ★ KONUM HAFIZASI — tablet oluşturulduktan hemen sonra
+local savedPosition = tablet.Position
 
 local stroke = Instance.new("UIStroke", tablet)
 stroke.Color = Color3.fromRGB(45, 130, 255)
@@ -171,7 +170,6 @@ subtitle.Font = Enum.Font.GothamSemibold
 subtitle.TextColor3 = Color3.fromRGB(120, 180, 255)
 subtitle.TextXAlignment = Enum.TextXAlignment.Left
 
--- Başlık butonları — mobilde daha büyük
 local hBtnSize = isMobile and 36 or 28
 local function headerBtn(txt, ox, col)
     local b = Instance.new("TextButton", header)
@@ -191,44 +189,38 @@ end
 local closeBtn = headerBtn("✕", -(hBtnSize + 10), Color3.fromRGB(220, 50, 60))
 local minBtn   = headerBtn("—", -(hBtnSize * 2 + 14), Color3.fromRGB(50, 50, 70))
 
--- ─── SÜRÜKLEME (MOBİL + PC) ───
-local dragging, dragStart, startPos
-
-local function startDrag(input)
-    dragging = true
-    dragStart = input.Position
-    startPos = tablet.Position
-end
-
-local function updateDrag(input)
-    if not dragging then return end
-    local d = input.Position - dragStart
-    tablet.Position = UDim2.new(
-        startPos.X.Scale, startPos.X.Offset + d.X,
-        startPos.Y.Scale, startPos.Y.Offset + d.Y
-    )
-end
-
-local function endDrag()
-    dragging = false
-end
+-- ─── TABLET SÜRÜKLEME (konum kaydeder) ───
+local dragging = false
+local dragStart, startPos
 
 header.InputBegan:Connect(function(i)
     if i.UserInputType == Enum.UserInputType.MouseButton1
     or i.UserInputType == Enum.UserInputType.Touch then
-        startDrag(i)
+        dragging = true
+        dragStart = i.Position
+        startPos = tablet.Position
     end
 end)
+
 UIS.InputChanged:Connect(function(i)
+    if not dragging then return end
     if i.UserInputType == Enum.UserInputType.MouseMovement
     or i.UserInputType == Enum.UserInputType.Touch then
-        updateDrag(i)
+        local d = i.Position - dragStart
+        tablet.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + d.X,
+            startPos.Y.Scale, startPos.Y.Offset + d.Y
+        )
     end
 end)
+
 UIS.InputEnded:Connect(function(i)
+    if not dragging then return end
     if i.UserInputType == Enum.UserInputType.MouseButton1
     or i.UserInputType == Enum.UserInputType.Touch then
-        endDrag()
+        dragging = false
+        -- ★ Sürükleme bitti → konumu kaydet
+        savedPosition = tablet.Position
     end
 end)
 
@@ -329,7 +321,6 @@ for i, tab in ipairs(TABS) do
     page.AutomaticCanvasSize = Enum.AutomaticSize.Y
     page.Visible = false
     page.ClipsDescendants = true
-    -- MOBİL İÇİN önemli: touch scroll aktif
     page.ScrollingEnabled = true
     page.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
 
@@ -347,10 +338,8 @@ for i, tab in ipairs(TABS) do
 end
 
 -- ══════════════════════════════════════════════
---  UI BİLEŞENLERİ — MOBİL BOYUTLU
+--  UI BİLEŞENLERİ
 -- ══════════════════════════════════════════════
-local TW_ANIM = TweenInfo.new(0.12, Enum.EasingStyle.Quad)
-
 local function Section(parent, txt)
     local f = Instance.new("Frame", parent)
     f.Size = UDim2.new(1, 0, 0, isMobile and 24 or 22)
@@ -375,7 +364,7 @@ local function Button(parent, txt, color, cb)
     b.Font = Enum.Font.GothamSemibold
     b.TextColor3 = Color3.new(1,1,1)
     b.BorderSizePixel = 0
-    b.AutoButtonColor = true  -- mobilde görsel feedback için önemli
+    b.AutoButtonColor = true
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
     b.MouseButton1Click:Connect(function()
         if cb then pcall(cb) end
@@ -436,7 +425,6 @@ local function Toggle(parent, txt, cb)
     return {set=set, get=function() return on end, row=row}
 end
 
--- SLIDER — MOBİL İÇİN DÜZELTİLDİ
 local function Slider(parent, txt, mn, mx, def, cb)
     local f = Instance.new("Frame", parent)
     f.Size = UDim2.new(1, 0, 0, isMobile and 62 or 52)
@@ -464,7 +452,6 @@ local function Slider(parent, txt, mn, mx, def, cb)
     val.TextColor3 = Color3.fromRGB(45,130,255)
     val.TextXAlignment = Enum.TextXAlignment.Right
 
-    -- Mobilde daha büyük hitbox
     local trackH = isMobile and 28 or 22
     local track = Instance.new("Frame", f)
     track.Size = UDim2.new(1, -24, 0, trackH)
@@ -504,7 +491,6 @@ local function Slider(parent, txt, mn, mx, def, cb)
         if cb then pcall(cb, v) end
     end
 
-    -- MOBİL: Touch events'i ayrı dinle
     track.InputBegan:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1
         or i.UserInputType == Enum.UserInputType.Touch then
@@ -593,7 +579,7 @@ local function createESPFor(plr)
     end
 
     bill.Parent = head
-    espData[plr] = {bill=bill, head=head, role=role}
+    espData[plr] = {bill=bill, head=head, role=role, healthLabel=hl}
 end
 
 local function removeESPFor(plr)
@@ -615,7 +601,6 @@ end
 local function startESP()
     espOn = true
     refreshAllESP()
-    -- Health güncelleme — 0.3sn'de bir
     local acc = 0
     espUpdateConn = RS.Heartbeat:Connect(function(dt)
         acc = acc + dt
@@ -626,19 +611,8 @@ local function startESP()
                 removeESPFor(plr)
             else
                 local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-                if hum and data.bill:FindFirstChildOfClass("Frame") then
-                    local bg = data.bill:FindFirstChildOfClass("Frame")
-                    local hl = bg and bg:FindFirstChild("TextLabel", true)
-                    -- health label 3. label
-                    local labels = {}
-                    if bg then
-                        for _, c in ipairs(bg:GetChildren()) do
-                            if c:IsA("TextLabel") then table.insert(labels, c) end
-                        end
-                    end
-                    if labels[3] then
-                        labels[3].Text = "❤ " .. math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth)
-                    end
+                if hum and data.healthLabel and data.healthLabel.Parent then
+                    data.healthLabel.Text = "❤ " .. math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth)
                 end
             end
         end
@@ -868,7 +842,7 @@ Toggle(P2, "🏃 Katilden Kaç", function(on)
 end)
 
 -- ══════════════════════════════════════════════
---  SAYFA 3 — OYUNCU (FLING DAHİL)
+--  SAYFA 3 — OYUNCU (FLING)
 -- ══════════════════════════════════════════════
 local P3 = pages[3]
 local selectedPlayer = nil
@@ -1103,7 +1077,57 @@ Button(P6, "🎥 Kamerayı Sıfırla", Color3.fromRGB(30,30,46), function()
 end)
 
 -- ══════════════════════════════════════════════
---  MOBİL UYUMLU AÇ/KAPAT BUTONU
+--  TABLET AÇ/KAPAT (FIXED — POZİSYON KORUNUR)
+-- ══════════════════════════════════════════════
+local tabletVisible = true
+local TABLET_MIN_SIZE = 10 -- minimum görünür boyut (animasyon için)
+
+function toggleTablet()
+    tabletVisible = not tabletVisible
+    
+    if tabletVisible then
+        -- ★ AÇ: pozisyonu geri yükle, sonra büyüt
+        tablet.Position = savedPosition
+        tablet.Visible = true
+        tablet.Size = UDim2.fromOffset(TABLET_MIN_SIZE, TABLET_MIN_SIZE)
+        TS:Create(tablet, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Size = UDim2.fromOffset(TW, TH),
+        }):Play()
+    else
+        -- ★ KAPAT: sadece size küçült, position'a DOKUNMA
+        TS:Create(tablet, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Size = UDim2.fromOffset(TABLET_MIN_SIZE, TABLET_MIN_SIZE),
+        }):Play()
+        task.delay(0.2, function()
+            tablet.Visible = false
+        end)
+    end
+end
+
+closeBtn.MouseButton1Click:Connect(toggleTablet)
+
+-- Minimize
+local minimized = false
+local preMinimizeSize = nil
+minBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    if minimized then
+        preMinimizeSize = tablet.Size
+        TS:Create(tablet, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+            Size = UDim2.fromOffset(TW, HEADER_H),
+        }):Play()
+        minBtn.Text = "+"
+    else
+        TS:Create(tablet, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+            Size = UDim2.fromOffset(TW, TH),
+        }):Play()
+        minBtn.Text = "—"
+    end
+    savedPosition = tablet.Position
+end)
+
+-- ══════════════════════════════════════════════
+--  FAB BUTONU (FIXED — tek tetik)
 -- ══════════════════════════════════════════════
 local fabSize = isMobile and 64 or 56
 local toggleFab = Instance.new("TextButton", sg)
@@ -1115,35 +1139,44 @@ toggleFab.TextSize = isMobile and 28 or 24
 toggleFab.Font = Enum.Font.GothamBold
 toggleFab.BorderSizePixel = 0
 toggleFab.AutoButtonColor = false
+toggleFab.Active = true
 Instance.new("UICorner", toggleFab).CornerRadius = UDim.new(1,0)
 
 local fabStroke = Instance.new("UIStroke", toggleFab)
 fabStroke.Color = Color3.new(1,1,1)
 fabStroke.Thickness = 1.5
 
--- Pulse (mobilde hafif)
 local pulse = TS:Create(toggleFab, TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
     Size = UDim2.fromOffset(fabSize + 6, fabSize + 6),
 })
 pulse:Play()
 
--- FAB SÜRÜKLEME (mobil uyumlu)
-local fabDrag, fabStart, fabStartP
+-- ★ FAB sürükleme + tıklama state machine
+local fabDrag = false
 local fabMoved = false
+local fabStart = nil
+local fabStartP = nil
+local FAB_DRAG_THRESHOLD = 10
 
 toggleFab.InputBegan:Connect(function(i)
-    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+    if i.UserInputType == Enum.UserInputType.MouseButton1
+    or i.UserInputType == Enum.UserInputType.Touch then
         fabDrag = true
         fabMoved = false
         fabStart = i.Position
         fabStartP = toggleFab.Position
+        pulse:Pause()
     end
 end)
 
 UIS.InputChanged:Connect(function(i)
-    if fabDrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+    if not fabDrag then return end
+    if i.UserInputType == Enum.UserInputType.MouseMovement
+    or i.UserInputType == Enum.UserInputType.Touch then
         local d = i.Position - fabStart
-        if d.Magnitude > 8 then fabMoved = true end
+        if not fabMoved and d.Magnitude > FAB_DRAG_THRESHOLD then
+            fabMoved = true
+        end
         if fabMoved then
             toggleFab.Position = UDim2.new(
                 fabStartP.X.Scale, fabStartP.X.Offset + d.X,
@@ -1154,49 +1187,21 @@ UIS.InputChanged:Connect(function(i)
 end)
 
 UIS.InputEnded:Connect(function(i)
-    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+    if not fabDrag then return end
+    if i.UserInputType == Enum.UserInputType.MouseButton1
+    or i.UserInputType == Enum.UserInputType.Touch then
         fabDrag = false
-        -- Sadece sürüklenmediyse tıklama say
+        pulse:Play()
+        -- ★ SADECE sürüklenmediyse toggle et
         if not fabMoved then
             toggleTablet()
         end
     end
 end)
 
--- ─── Tablet Aç/Kapat ───
-local tabletVisible = true
-
-function toggleTablet()
-    tabletVisible = not tabletVisible
-    if tabletVisible then
-        tablet.Visible = true
-        TS:Create(tablet, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.fromOffset(TW, TH),
-        }):Play()
-        overlay.Visible = false
-    else
-        TS:Create(tablet, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
-            Size = UDim2.fromOffset(0, 0),
-            Position = UDim2.new(0.5, 0, 0.5, 0),
-        }):Play()
-        task.delay(0.22, function() tablet.Visible = false end)
-        overlay.Visible = false
-    end
-end
-
-closeBtn.MouseButton1Click:Connect(toggleTablet)
-
--- Minimize
-local minimized = false
-minBtn.MouseButton1Click:Connect(function()
-    minimized = not minimized
-    TS:Create(tablet, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
-        Size = minimized and UDim2.fromOffset(TW, HEADER_H) or UDim2.fromOffset(TW, TH),
-    }):Play()
-    minBtn.Text = minimized and "+" or "—"
-end)
-
--- Klavye (PC için)
+-- ══════════════════════════════════════════════
+--  KLAVYE (PC için)
+-- ══════════════════════════════════════════════
 UIS.InputBegan:Connect(function(i, gp)
     if gp then return end
     if i.KeyCode == Enum.KeyCode.RightShift then toggleTablet()
@@ -1230,4 +1235,4 @@ task.wait(0.5)
 refreshPlayerList()
 switchTab(1)
 
-print("[MM2 HUB — MOBILE] Hazır! " .. (isMobile and "FAB'a dokun" or "RightShift"))
+print("[MM2 HUB — FIXED] Hazır! " .. (isMobile and "FAB'a dokun" or "RightShift"))
